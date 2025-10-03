@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import {
   Truck, BookOpen, Gamepad2, Package, Plus, Edit2, Trash2, LogOut,
-  Mail, Lock, Eye, EyeOff, Users, Shield, Ban, CheckCircle, X, PlayCircle
+  Mail, Lock, Eye, EyeOff, Users, Shield, Ban, CheckCircle, X, PlayCircle, KeyRound, ExternalLink, LogIn
 } from 'lucide-react';
 import { auth, db } from './firebase';
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  signOut, onAuthStateChanged, onIdTokenChanged
+  sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup,
+  signOut, onAuthStateChanged
 } from 'firebase/auth';
 import {
   collection, addDoc, updateDoc, deleteDoc, doc, getDocs, setDoc, getDoc
 } from 'firebase/firestore';
+import { sendMagicLink, completeMagicLinkSignIn } from './passwordless';
 import RuTubeModal from './RuTubeModal';
 
+// Встроенный каталог (добавится к данным из Firestore)
 const INITIAL_GAMES = [
   { id: 'free-1', title: 'Waremover', description: 'Управляйте складом и оптимизируйте размещение товаров', url: 'https://supplychains.github.io/waremover/', category: 'free', isBuiltIn: true, type: 'link' },
   { id: 'free-2', title: 'Shipster', description: 'Симулятор управления доставками и маршрутизацией', url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
@@ -59,6 +62,26 @@ function App() {
   const [ruModalOpen, setRuModalOpen] = useState(false);
   const [ruModalUrl, setRuModalUrl] = useState('');
 
+  // Reset Password modal
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetSent, setResetSent] = useState(false);
+
+  // обработка passwordless ссылки при загрузке
+  useEffect(() => {
+    completeMagicLinkSignIn()
+      .then(async (user) => {
+        if (user) {
+          const tokenResult = await user.getIdTokenResult(true).catch(() => null);
+          setIsAdminClaim(!!tokenResult?.claims?.admin);
+          setCurrentPage('dashboard');
+          await loadGames();
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -80,16 +103,28 @@ function App() {
             });
             setCurrentPage('dashboard');
             await loadGames();
-            if (userData.role === 'admin' && adminFromClaim) await loadUsers();
+            if (userData.role === 'admin') await loadUsers();
           } else {
             await signOut(auth);
             showNotification('Ваш аккаунт заблокирован', 'error');
           }
         } else {
-          await signOut(auth);
-          setLoginError('Пользователь не найден в системе');
-          setCurrentUser(null);
-          setCurrentPage('login');
+          // автосоздание, если отсутствует (например, логин через Google)
+          await setDoc(userDocRef, {
+            email: firebaseUser.email,
+            name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
+            role: 'user',
+            status: 'active',
+            createdAt: new Date().toISOString(),
+          }, { merge: true });
+          setCurrentUser({
+            id: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
+            role: 'user',
+          });
+          setCurrentPage('dashboard');
+          await loadGames();
         }
       } else {
         setCurrentUser(null);
@@ -98,19 +133,6 @@ function App() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
-
-  // обновляем admin-claim при изменении ID токена
-  useEffect(() => {
-    const sub = onIdTokenChanged(auth, async (u) => {
-      if (!u) {
-        setIsAdminClaim(false);
-        return;
-      }
-      const res = await u.getIdTokenResult(true).catch(() => null);
-      setIsAdminClaim(!!res?.claims?.admin);
-    });
-    return () => sub();
   }, []);
 
   const loadGames = async () => {
@@ -143,14 +165,13 @@ function App() {
       const userCredential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       if (!userDoc.exists()) {
-        await signOut(auth);
-        setLoginError('Пользователь не найден в системе');
-        return;
-      }
-      if (userDoc.data().status === 'blocked') {
-        await signOut(auth);
-        setLoginError('Ваш аккаунт заблокирован');
-        return;
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          email: userCredential.user.email,
+          name: userCredential.user.displayName || (userCredential.user.email ? userCredential.user.email.split('@')[0] : 'User'),
+          role: 'user',
+          status: 'active',
+          createdAt: new Date().toISOString()
+        }, { merge: true });
       }
       const tokenResult = await userCredential.user.getIdTokenResult(true);
       setIsAdminClaim(!!tokenResult?.claims?.admin);
@@ -193,6 +214,43 @@ function App() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const res = await signInWithPopup(auth, provider);
+      // создать пользователя в БД, если нет
+      const ref = doc(db, 'users', res.user.uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          email: res.user.email,
+          name: res.user.displayName || 'User',
+          role: 'user',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        });
+      }
+      const tokenResult = await res.user.getIdTokenResult(true);
+      setIsAdminClaim(!!tokenResult?.claims?.admin);
+      showNotification('Вход через Google выполнен');
+    } catch (e) {
+      showNotification('Ошибка входа через Google', 'error');
+    }
+  };
+
+  const handleSendMagicLink = async () => {
+    if (!loginEmail) {
+      setLoginError('Введите email для входа по ссылке');
+      return;
+    }
+    try {
+      await sendMagicLink(loginEmail);
+      showNotification('Ссылка для входа отправлена на email');
+    } catch (e) {
+      showNotification('Не удалось отправить ссылку', 'error');
+    }
+  };
+
   const handleLogout = async () => {
     await signOut(auth);
     setLoginEmail('');
@@ -201,10 +259,6 @@ function App() {
   };
 
   const handleToggleUserStatus = async (userId) => {
-    if (!isAdminClaim) {
-      showNotification('Требуются права администратора', 'error');
-      return;
-    }
     try {
       const userDocRef = doc(db, 'users', userId);
       const userDoc = await getDoc(userDocRef);
@@ -219,10 +273,6 @@ function App() {
   };
 
   const handleDeleteUser = async (userId) => {
-    if (!isAdminClaim) {
-      showNotification('Требуются права администратора', 'error');
-      return;
-    }
     if (userId === currentUser?.id) {
       showNotification('Нельзя удалить себя', 'error');
       return;
@@ -240,10 +290,6 @@ function App() {
   };
 
   const handleChangeUserRole = async (userId) => {
-    if (!isAdminClaim) {
-      showNotification('Требуются права администратора', 'error');
-      return;
-    }
     try {
       const userDocRef = doc(db, 'users', userId);
       const userDoc = await getDoc(userDocRef);
@@ -260,10 +306,6 @@ function App() {
   const getCategoryGames = (category) => games.filter(g => g.category === category);
 
   const handleAddGame = async () => {
-    if (!isAdminClaim) {
-      showNotification('Требуются права администратора', 'error');
-      return;
-    }
     if (!formData.title || !formData.description || !formData.url) {
       showNotification('Заполните все поля', 'error');
       return;
@@ -292,10 +334,6 @@ function App() {
   };
 
   const handleEditGame = async () => {
-    if (!isAdminClaim) {
-      showNotification('Требуются права администратора', 'error');
-      return;
-    }
     if (!formData.title || !formData.description || !formData.url) {
       showNotification('Заполните все поля', 'error');
       return;
@@ -317,10 +355,6 @@ function App() {
   };
 
   const handleDeleteGame = async (gameId) => {
-    if (!isAdminClaim) {
-      showNotification('Требуются права администратора', 'error');
-      return;
-    }
     if (window.confirm('Удалить элемент?')) {
       try {
         await deleteDoc(doc(db, 'games', gameId));
@@ -356,6 +390,28 @@ function App() {
     setRuModalOpen(true);
   };
 
+  const openReset = () => {
+    setResetEmail(loginEmail || '');
+    setResetError('');
+    setResetSent(false);
+    setResetOpen(true);
+  };
+
+  const doReset = async () => {
+    setResetError('');
+    setResetSent(false);
+    try {
+      if (!resetEmail) {
+        setResetError('Укажите email');
+        return;
+      }
+      await sendPasswordResetEmail(auth, resetEmail);
+      setResetSent(true);
+    } catch (e) {
+      setResetError('Не удалось отправить письмо. Проверьте email.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -378,16 +434,18 @@ function App() {
               <Truck className="w-8 h-8 text-blue-600" />
               <h1 className="text-2xl font-bold text-gray-800">Logistoria</h1>
             </div>
+
             {!isRegistering ? (
               <>
                 <h2 className="text-3xl font-bold text-gray-800 mb-2">Добро пожаловать</h2>
-                <p className="text-gray-600 mb-8">Войдите в свой аккаунт</p>
-                <div className="space-y-6">
+                <p className="text-gray-600 mb-6">Войдите в свой аккаунт любым способом</p>
+
+                <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="your@email.com" />
+                      <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
@@ -401,10 +459,28 @@ function App() {
                     </div>
                   </div>
                   {loginError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm">{loginError}</div>}
-                  <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg">Войти</button>
-                  <div className="text-center">
-                    <button onClick={() => { setIsRegistering(true); setLoginError(''); }} className="text-blue-600 hover:text-blue-700 font-medium text-sm">
-                      Нет аккаунта? Зарегистрируйтесь
+                  <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2">
+                    <LogIn className="w-4 h-4" />
+                    Войти
+                  </button>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    <button onClick={handleGoogleLogin} className="w-full border py-3 rounded-lg flex items-center justify-center gap-2">
+                      <img alt="" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" />
+                      Войти через Google
+                    </button>
+                    <button onClick={handleSendMagicLink} className="w-full border py-3 rounded-lg">
+                      Войти по ссылке на email
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm">
+                    <button onClick={openReset} className="text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                      <KeyRound className="w-4 h-4" />
+                      Забыли пароль?
+                    </button>
+                    <button onClick={() => { setIsRegistering(true); setLoginError(''); }} className="text-blue-600 hover:text-blue-700">
+                      Нет аккаунта? Регистрация
                     </button>
                   </div>
                 </div>
@@ -412,8 +488,8 @@ function App() {
             ) : (
               <>
                 <h2 className="text-3xl font-bold text-gray-800 mb-2">Регистрация</h2>
-                <p className="text-gray-600 mb-8">Создайте новый аккаунт</p>
-                <div className="space-y-6">
+                <p className="text-gray-600 mb-6">Создайте новый аккаунт</p>
+                <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Имя</label>
                     <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Иван Иванов" />
@@ -422,7 +498,7 @@ function App() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="your@email.com" />
+                      <input type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
@@ -439,19 +515,48 @@ function App() {
                   <button onClick={handleRegister} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg">Зарегистрироваться</button>
                   <div className="text-center">
                     <button onClick={() => { setIsRegistering(false); setRegisterError(''); }} className="text-blue-600 hover:text-blue-700 font-medium text-sm">
-                      Уже есть аккаунт? Войдите
+                      Уже есть аккаунт? Войти
                     </button>
                   </div>
                 </div>
               </>
             )}
           </div>
+
           <div className="hidden md:flex bg-gradient-to-br from-blue-600 to-indigo-700 p-12 flex-col justify-center items-center text-white">
             <Truck className="w-32 h-32 mb-8 opacity-90" />
             <h3 className="text-2xl font-bold mb-4 text-center">Учитесь логистике через игры</h3>
             <p className="text-blue-100 text-center">Интерактивные симуляции и курсы</p>
           </div>
         </div>
+
+        {/* Модалка восстановления пароля */}
+        {resetOpen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-md rounded-xl shadow-xl p-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold flex items-center gap-2"><KeyRound className="w-5 h-5" /> Восстановление пароля</h3>
+                <button onClick={() => setResetOpen(false)} className="text-gray-500 hover:text-gray-700"><X className="w-5 h-5" /></button>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Мы отправим письмо со ссылкой для сброса пароля.
+              </p>
+              <input
+                type="email"
+                className="w-full border rounded-lg px-3 py-2 mb-3"
+                placeholder="you@email.com"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+              />
+              {resetError && <div className="text-sm text-red-600 mb-2">{resetError}</div>}
+              {resetSent && <div className="text-sm text-green-600 mb-2">Письмо отправлено! Проверьте почту.</div>}
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={() => setResetOpen(false)} className="px-4 py-2 border rounded-lg">Отмена</button>
+                <button onClick={doReset} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Отправить</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -480,7 +585,7 @@ function App() {
             <h1 className="text-xl font-bold">Logistoria</h1>
           </div>
           <div className="flex items-center gap-4">
-            {currentUser?.role === 'admin' && isAdminClaim && (
+            {currentUser?.role === 'admin' && (
               <button onClick={() => setShowUsersModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg">
                 <Users className="w-4 h-4" />
                 Пользователи
@@ -646,12 +751,12 @@ function App() {
         </div>
       )}
 
-      {showUsersModal && currentUser?.role === 'admin' && isAdminClaim && (
+      {showUsersModal && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
             <div className="p-6 border-b flex justify-between items-center">
               <h3 className="text-xl font-bold">Управление пользователями</h3>
-              <button onClick={closeModals} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowUsersModal(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -689,7 +794,7 @@ function App() {
             </div>
 
             <div className="p-4 border-t">
-              <button onClick={closeModals} className="w-full px-4 py-2 border rounded-lg">Закрыть</button>
+              <button onClick={() => setShowUsersModal(false)} className="w-full px-4 py-2 border rounded-lg">Закрыть</button>
             </div>
           </div>
         </div>
@@ -706,3 +811,5 @@ function App() {
 }
 
 export default App;
+
+

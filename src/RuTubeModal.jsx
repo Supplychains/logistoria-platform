@@ -5,11 +5,9 @@ function toRutubeEmbed(url) {
   try {
     const u = new URL(url);
     if (u.hostname.includes('rutube.ru') && u.pathname.startsWith('/video/')) {
-      const parts = u.pathname.split('/').filter(Boolean);
+      const parts = u.pathname.split('/').filter(Boolean); // ['video', '<id>']
       const id = parts[1];
-      if (id) {
-        return { embedUrl: `https://rutube.ru/play/embed/${id}`, canEmbed: true };
-      }
+      if (id) return { embedUrl: `https://rutube.ru/play/embed/${id}`, canEmbed: true };
     }
     return { embedUrl: null, canEmbed: false };
   } catch {
@@ -22,10 +20,7 @@ export default function RuTubeModal({ open, onClose, videoUrl }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setFailed(false);
-      return;
-    }
+    if (!open) { setFailed(false); return; }
     const info = toRutubeEmbed(videoUrl || '');
     setEmbedInfo(info);
     const t = setTimeout(() => setFailed(true), 5000);
@@ -59,7 +54,7 @@ export default function RuTubeModal({ open, onClose, videoUrl }) {
           ) : (
             <div className="text-center py-8">
               <p className="text-gray-600 mb-4">
-                Не удалось встроить плеер или этот тип ссылки RuTube не поддерживает встраивание.
+                Не удалось встроить плеер или ссылка RuTube не поддерживает встраивание.
               </p>
               {videoUrl && (
                 <a
@@ -96,3 +91,4 @@ export default function RuTubeModal({ open, onClose, videoUrl }) {
     </div>
   );
 }
+
