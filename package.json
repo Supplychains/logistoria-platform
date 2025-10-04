@@ -9,10 +9,13 @@
     "@testing-library/user-event": "^13.5.0",
     "firebase": "^12.3.0",
     "firebase-admin": "^13.5.0",
+    "i18next": "^21.6.16",
+    "i18next-browser-languagedetector": "^6.1.8",
     "lucide-react": "^0.544.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-scripts": "5.0.1",
+    "react-i18next": "^11.18.6",
+    "react-scripts": "^5.0.1",
     "web-vitals": "^2.1.4"
   },
   "scripts": {

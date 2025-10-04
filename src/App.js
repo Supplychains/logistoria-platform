@@ -1,47 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import {
   Truck, BookOpen, Gamepad2, Package, Plus, Edit2, Trash2, LogOut,
-  Mail, Lock, Eye, EyeOff, Users, Shield, Ban, CheckCircle, X, PlayCircle,
-  KeyRound, LogIn, Settings
+  Mail, Lock, Eye, EyeOff, Users, Shield, Ban, CheckCircle, X, PlayCircle, KeyRound, LogIn
 } from 'lucide-react';
+
+import './i18n';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from './LanguageSwitcher';
+
 import { auth, db } from './firebase';
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup,
-  signOut, onAuthStateChanged
+  signOut, onAuthStateChanged, sendEmailVerification,
 } from 'firebase/auth';
 import {
   collection, addDoc, updateDoc, deleteDoc, doc, getDocs, setDoc, getDoc
 } from 'firebase/firestore';
+
 import { sendMagicLink, completeMagicLinkSignIn } from './passwordless';
+import { isDisposableEmail } from './emailUtils';
 import RuTubeModal from './RuTubeModal';
 
-// Встроенный каталог (добавится/перекроется данными из Firestore)
+// Встроенный каталог (добавится к Firestore)
 const INITIAL_GAMES = [
+  // Free
   { id: 'free-1', title: 'Waremover', description: 'Управляйте складом и оптимизируйте размещение товаров', url: 'https://supplychains.github.io/waremover/', category: 'free', isBuiltIn: true, type: 'link' },
   { id: 'free-2', title: 'Shipster', description: 'Симулятор управления доставками и маршрутизацией', url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
-  { id: 'online-1', title: 'Supply Chain Game', description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
-  { id: 'online-2', title: 'Beer Game', description: 'Классическая игра для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
+  // Board (Free access)
   { id: 'board-1', title: 'Krossdok', description: 'Настольная игра по управлению кросс-докингом', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
   { id: 'board-2', title: 'The Beer Game', description: 'Физическая версия классической логистической игры', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
+  // Rutube (Free access) — добавляйте через админку
+  // Online (PRO)
+  { id: 'online-1', title: 'Supply Chain Game', description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
+  { id: 'online-2', title: 'Beer Game', description: 'Классическая игра для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
+  // Courses (PRO)
   { id: 'course-1', title: 'Курс для профессионалов', description: 'Продвинутое обучение управлению цепями поставок', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
   { id: 'course-2', title: 'Курс для школьников и студентов', description: 'Введение в логистику для начинающих', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
 ];
 
-// Доступ по планам
-function hasAccess(user, categoryId) {
-  const plan = user?.plan || 'free';
-  const matrix = {
-    free:  new Set(['free']),
-    basic: new Set(['free', 'online', 'rutube', 'board']), // ← добавили board
-    pro:   new Set(['free', 'online', 'rutube', 'videos', 'courses', 'board']),
-  };
-  return matrix[plan]?.has(categoryId);
-}
+// Порядок секций
+const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses'];
 
 function App() {
+  const { t } = useTranslation();
+
   const [currentPage, setCurrentPage] = useState('login');
   const [currentUser, setCurrentUser] = useState(null);
+  const [userPlan, setUserPlan] = useState('free'); // 'free' | 'pro'
   const [games, setGames] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -80,79 +86,76 @@ function App() {
   const [resetError, setResetError] = useState('');
   const [resetSent, setResetSent] = useState(false);
 
-  // Settings (кнопка "Заказать")
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settings, setSettings] = useState({
-    orderButtonText: 'Заказать',
-    orderButtonLink: '',
-    orderEmail: 'orders@example.com',
-  });
+  // Email verification notice
+  const [verifyNotice, setVerifyNotice] = useState('');
+  const [resendBusy, setResendBusy] = useState(false);
 
-  // обработка passwordless ссылки при загрузке
+  // Завершение passwordless при открытии
   useEffect(() => {
     completeMagicLinkSignIn()
       .then(async (user) => {
         if (user) {
           const tokenResult = await user.getIdTokenResult(true).catch(() => null);
           setIsAdminClaim(!!tokenResult?.claims?.admin);
+          await afterLogin(user.uid, user.email, user.displayName);
           setCurrentPage('dashboard');
-          await loadAll();
+          await loadGames();
         }
       })
       .catch(() => {});
   }, []);
 
+  // Auth state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const tokenResult = await firebaseUser.getIdTokenResult(true).catch(() => null);
-        const adminFromClaim = !!tokenResult?.claims?.admin;
-        setIsAdminClaim(adminFromClaim);
+        setIsAdminClaim(!!tokenResult?.claims?.admin);
 
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDoc = await getDoc(userDocRef);
 
         if (userDoc.exists()) {
-          const userData = userDoc.data();
-          if (userData.status === 'active') {
-            const plan = userData.plan || 'free';
-            if (!userData.plan) {
-              await updateDoc(userDocRef, { plan: 'free' }).catch(() => {});
-            }
+          const data = userDoc.data();
+          if (data.status === 'active') {
             setCurrentUser({
               id: firebaseUser.uid,
               email: firebaseUser.email,
-              name: userData.name,
-              role: userData.role,
-              plan,
+              name: data.name,
+              role: data.role,
             });
+            setUserPlan(data.plan || 'free');
             setCurrentPage('dashboard');
-            await loadAll();
+            await loadGames();
+            if (data.role === 'admin') await loadUsers();
           } else {
             await signOut(auth);
             showNotification('Ваш аккаунт заблокирован', 'error');
           }
         } else {
-          await setDoc(userDocRef, {
+          // если нет — создаём
+          const payload = {
             email: firebaseUser.email,
             name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
             role: 'user',
             status: 'active',
             plan: 'free',
             createdAt: new Date().toISOString(),
-          }, { merge: true });
+          };
+          await setDoc(userDocRef, payload, { merge: true });
           setCurrentUser({
             id: firebaseUser.uid,
             email: firebaseUser.email,
-            name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
-            role: 'user',
-            plan: 'free',
+            name: payload.name,
+            role: payload.role,
           });
+          setUserPlan('free');
           setCurrentPage('dashboard');
-          await loadAll();
+          await loadGames();
         }
       } else {
         setCurrentUser(null);
+        setUserPlan('free');
         setCurrentPage('login');
       }
       setLoading(false);
@@ -160,52 +163,43 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  async function loadAll() {
-    await Promise.all([loadGames(), loadUsersIfAdmin(), loadSettings()]);
-  }
-
-  async function loadUsersIfAdmin() {
-    if (currentUser?.role === 'admin') {
-      try {
-        const usersSnapshot = await getDocs(collection(db, 'users'));
-        setUsers(usersSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (error) {
-        console.error('Ошибка загрузки пользователей:', error);
-      }
+  const afterLogin = async (uid, email, displayName) => {
+    const ref = doc(db, 'users', uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        email,
+        name: displayName || (email ? email.split('@')[0] : 'User'),
+        role: 'user',
+        status: 'active',
+        plan: 'free',
+        createdAt: new Date().toISOString(),
+      });
+      setUserPlan('free');
+    } else if (!snap.data().plan) {
+      await setDoc(ref, { plan: 'free' }, { merge: true });
+      setUserPlan('free');
+    } else {
+      setUserPlan(snap.data().plan || 'free');
     }
-  }
+  };
 
-  async function loadSettings() {
-    try {
-      const snap = await getDoc(doc(db, 'settings', 'general'));
-      if (snap.exists()) {
-        const data = snap.data();
-        setSettings({
-          orderButtonText: data.orderButtonText || 'Заказать',
-          orderButtonLink: data.orderButtonLink || '',
-          orderEmail: data.orderEmail || 'orders@example.com',
-        });
-      }
-    } catch {}
-  }
-
-  // Мердж встроенных карточек и БД: БД перекрывает BUILTIN по id, новые — добавляются.
   const loadGames = async () => {
     try {
       const gamesSnapshot = await getDocs(collection(db, 'games'));
-      const dbGames = gamesSnapshot.docs.map(d => ({ id: d.id, ...d.data(), _source: 'db' }));
+      const loadedGames = gamesSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setGames([...INITIAL_GAMES, ...loadedGames]);
+    } catch {
+      setGames(INITIAL_GAMES);
+    }
+  };
 
-      const map = new Map();
-      for (const g of INITIAL_GAMES) {
-        map.set(g.id, { ...g, _source: 'builtin' });
-      }
-      for (const g of dbGames) {
-        map.set(g.id, { ...map.get(g.id), ...g, _source: 'db' });
-      }
-
-      setGames(Array.from(map.values()));
+  const loadUsers = async () => {
+    try {
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      setUsers(usersSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (error) {
-      setGames(INITIAL_GAMES.map(g => ({ ...g, _source: 'builtin' })));
+      console.error('Ошибка загрузки пользователей:', error);
     }
   };
 
@@ -214,98 +208,106 @@ function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  // ======== АУТЕНТИФИКАЦИЯ ========
+
+  // ЛОГИН по паролю: блокируем вход, если почта не верифицирована
   const handleLogin = async () => {
     try {
       setLoginError('');
+      setVerifyNotice('');
       const userCredential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
-      const ref = doc(db, 'users', userCredential.user.uid);
-      const userDoc = await getDoc(ref);
-      if (!userDoc.exists()) {
-        await setDoc(ref, {
-          email: userCredential.user.email,
-          name: userCredential.user.displayName || (userCredential.user.email ? userCredential.user.email.split('@')[0] : 'User'),
-          role: 'user',
-          status: 'active',
-          plan: 'free',
-          createdAt: new Date().toISOString()
-        }, { merge: true });
+      const user = userCredential.user;
+
+      if (!user.emailVerified) {
+        await signOut(auth);
+        setVerifyNotice('Ваш e-mail не подтверждён. Проверьте почту или отправьте письмо ещё раз.');
+        return;
       }
-      const tokenResult = await userCredential.user.getIdTokenResult(true);
+
+      await afterLogin(user.uid, user.email, user.displayName);
+      const tokenResult = await user.getIdTokenResult(true);
       setIsAdminClaim(!!tokenResult?.claims?.admin);
-      showNotification('Добро пожаловать!');
-    } catch (error) {
-      setLoginError('Неверный email или пароль');
+      showNotification(t('auth.welcomeBack'));
+    } catch {
+      setLoginError(t('auth.invalidCreds'));
     }
   };
 
+  // РЕГИСТРАЦИЯ: запрещаем disposable-домены, отправляем verify email и выходим
   const handleRegister = async () => {
     if (!registerName || !registerEmail || !registerPassword) {
-      setRegisterError('Заполните все поля');
+      setRegisterError(t('admin.fillAll'));
       return;
     }
     if (registerPassword.length < 6) {
       setRegisterError('Пароль должен быть не менее 6 символов');
       return;
     }
+    if (isDisposableEmail(registerEmail)) {
+      setRegisterError('Этот домен e-mail не поддерживается. Укажите реальную почту.');
+      return;
+    }
     try {
       setRegisterError('');
       const userCredential = await createUserWithEmailAndPassword(auth, registerEmail, registerPassword);
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
+      const user = userCredential.user;
+
+      await setDoc(doc(db, 'users', user.uid), {
         email: registerEmail,
         name: registerName,
         role: 'user',
         status: 'active',
         plan: 'free',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       });
-      showNotification('Регистрация успешна!');
+
+      await sendEmailVerification(user);
+      await signOut(auth);
+
       setIsRegistering(false);
       setRegisterName('');
       setRegisterEmail('');
       setRegisterPassword('');
+      setVerifyNotice('Мы отправили письмо для подтверждения. Проверьте почту и перейдите по ссылке, затем войдите.');
+      showNotification('Письмо для подтверждения отправлено!');
     } catch (error) {
       if (error.code === 'auth/email-already-in-use') {
-        setRegisterError('Email уже используется');
+        setRegisterError(t('auth.emailInUse'));
       } else {
-        setRegisterError('Ошибка регистрации');
+        setRegisterError(t('auth.registerError'));
       }
     }
   };
 
+  // Google
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       const res = await signInWithPopup(auth, provider);
-      const ref = doc(db, 'users', res.user.uid);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          email: res.user.email,
-          name: res.user.displayName || 'User',
-          role: 'user',
-          status: 'active',
-          plan: 'free',
-          createdAt: new Date().toISOString(),
-        });
-      }
+      await afterLogin(res.user.uid, res.user.email, res.user.displayName);
       const tokenResult = await res.user.getIdTokenResult(true);
       setIsAdminClaim(!!tokenResult?.claims?.admin);
       showNotification('Вход через Google выполнен');
-    } catch (e) {
+    } catch {
       showNotification('Ошибка входа через Google', 'error');
     }
   };
 
+  // Magic link — запрещаем disposable-домены
   const handleSendMagicLink = async () => {
     if (!loginEmail) {
-      setLoginError('Введите email для входа по ссылке');
+      setLoginError(t('auth.enterEmail'));
       return;
     }
     try {
       await sendMagicLink(loginEmail);
       showNotification('Ссылка для входа отправлена на email');
     } catch (e) {
-      showNotification('Не удалось отправить ссылку', 'error');
+      if (e?.message === 'DISPOSABLE_EMAIL') {
+        setLoginError('Этот домен e-mail не поддерживается. Укажите реальную почту.');
+      } else {
+        showNotification('Не удалось отправить ссылку', 'error');
+      }
     }
   };
 
@@ -316,13 +318,44 @@ function App() {
     setIsAdminClaim(false);
   };
 
+  // Повторная отправка верификационного письма:
+  // используем введённые на форме логина email+password
+  const resendVerificationEmail = async () => {
+    if (!loginEmail || !loginPassword) {
+      setLoginError('Укажите e-mail и пароль, чтобы отправить письмо повторно.');
+      return;
+    }
+    try {
+      setResendBusy(true);
+      const cred = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      const user = cred.user;
+
+      if (user.emailVerified) {
+        showNotification('E-mail уже подтверждён. Войдите в аккаунт.');
+        await signOut(auth);
+        return;
+      }
+
+      await sendEmailVerification(user);
+      await signOut(auth);
+      showNotification('Письмо отправлено повторно. Проверьте почту.');
+      setVerifyNotice('Мы снова отправили письмо. Проверьте почту.');
+    } catch {
+      setLoginError('Не удалось отправить письмо. Проверьте e-mail и пароль.');
+    } finally {
+      setResendBusy(false);
+    }
+  };
+
+  // ======== CRUD каталога ========
+
   const handleToggleUserStatus = async (userId) => {
     try {
       const userDocRef = doc(db, 'users', userId);
       const userDoc = await getDoc(userDocRef);
       const newStatus = userDoc.data().status === 'active' ? 'blocked' : 'active';
       await updateDoc(userDocRef, { status: newStatus });
-      await loadUsersIfAdmin();
+      await loadUsers();
       showNotification('Статус изменен');
     } catch (error) {
       console.error('Ошибка изменения статуса:', error);
@@ -338,7 +371,7 @@ function App() {
     if (window.confirm('Удалить пользователя?')) {
       try {
         await deleteDoc(doc(db, 'users', userId));
-        await loadUsersIfAdmin();
+        await loadUsers();
         showNotification('Пользователь удален');
       } catch (error) {
         console.error('Ошибка удаления пользователя:', error);
@@ -353,21 +386,11 @@ function App() {
       const userDoc = await getDoc(userDocRef);
       const newRole = userDoc.data().role === 'admin' ? 'user' : 'admin';
       await updateDoc(userDocRef, { role: newRole });
-      await loadUsersIfAdmin();
+      await loadUsers();
       showNotification('Роль изменена');
     } catch (error) {
       console.error('Ошибка изменения роли:', error);
       showNotification('Ошибка изменения роли', 'error');
-    }
-  };
-
-  const handleChangeUserPlan = async (userId, newPlan) => {
-    try {
-      await updateDoc(doc(db, 'users', userId), { plan: newPlan });
-      await loadUsersIfAdmin();
-      showNotification('План доступа изменён');
-    } catch (e) {
-      showNotification('Не удалось изменить план', 'error');
     }
   };
 
@@ -385,10 +408,9 @@ function App() {
         isBuiltIn: false,
         type:
           selectedCategory === 'courses' ? 'pdf' :
-          selectedCategory === 'videos'  ? 'video' :
           selectedCategory === 'rutube'  ? 'rutube' :
           'link',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       });
       await loadGames();
       setShowAddModal(false);
@@ -407,22 +429,11 @@ function App() {
       return;
     }
     try {
-      const id = editingGame.id;
-      await setDoc(doc(db, 'games', id), {
+      await updateDoc(doc(db, 'games', editingGame.id), {
         title: formData.title,
         description: formData.description,
         url: formData.url,
-        category: editingGame.category,
-        type: editingGame.type || (
-          editingGame.category === 'courses' ? 'pdf' :
-          editingGame.category === 'videos'  ? 'video' :
-          editingGame.category === 'rutube'  ? 'rutube' :
-          'link'
-        ),
-        isBuiltIn: false,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-
+      });
       await loadGames();
       setEditingGame(null);
       setFormData({ title: '', description: '', url: '' });
@@ -433,16 +444,12 @@ function App() {
     }
   };
 
-  const handleDeleteGame = async (game) => {
-    if (game._source !== 'db') {
-      showNotification('Нельзя удалить встроенный элемент. Можно отредактировать (создастся оверрайд).', 'error');
-      return;
-    }
+  const handleDeleteGame = async (gameId) => {
     if (window.confirm('Удалить элемент?')) {
       try {
-        await deleteDoc(doc(db, 'games', game.id));
+        await deleteDoc(doc(db, 'games', gameId));
         await loadGames();
-        showNotification('Элемент удалён (при наличии built-in вернулся к базовой версии)');
+        showNotification('Элемент удалён');
       } catch (error) {
         console.error('Ошибка удаления элемента:', error);
         showNotification('Ошибка удаления', 'error');
@@ -464,7 +471,6 @@ function App() {
     setShowAddModal(false);
     setEditingGame(null);
     setShowUsersModal(false);
-    setShowSettingsModal(false);
     setFormData({ title: '', description: '', url: '' });
     setSelectedCategory(null);
   };
@@ -491,25 +497,26 @@ function App() {
       }
       await sendPasswordResetEmail(auth, resetEmail);
       setResetSent(true);
-    } catch (e) {
+    } catch {
       setResetError('Не удалось отправить письмо. Проверьте email.');
     }
   };
 
-  const saveSettings = async () => {
-    try {
-      await setDoc(doc(db, 'settings', 'general'), {
-        orderButtonText: settings.orderButtonText || 'Заказать',
-        orderButtonLink: settings.orderButtonLink || '',
-        orderEmail: settings.orderEmail || '',
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-      showNotification('Настройки сохранены');
-      setShowSettingsModal(false);
-    } catch {
-      showNotification('Не удалось сохранить настройки', 'error');
-    }
+  // Доступы Free/PRO
+  const canAccessCategory = (categoryId) => {
+    if (currentUser?.role === 'admin') return true;
+    if (userPlan === 'pro') return true;
+    return ['free', 'board', 'rutube'].includes(categoryId); // Free-доступ
   };
+
+  const renderLockedOverlay = () => (
+    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
+      <div className="font-medium mb-2">Этот раздел доступен в PRO</div>
+      <a href="#upgrade" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
+        Оформить PRO
+      </a>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -536,19 +543,19 @@ function App() {
 
             {!isRegistering ? (
               <>
-                <h2 className="text-3xl font-bold text-gray-800 mb-2">Добро пожаловать</h2>
-                <p className="text-gray-600 mb-6">Войдите в свой аккаунт любым способом</p>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">{t('auth.hello')}</h2>
+                <p className="text-gray-600 mb-6">{t('auth.signInToAccount')}</p>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.email')}</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Пароль</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.password')}</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type={showPassword ? "text" : "password"} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="••••••••" />
@@ -557,19 +564,21 @@ function App() {
                       </button>
                     </div>
                   </div>
+
                   {loginError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm">{loginError}</div>}
+
                   <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2">
                     <LogIn className="w-4 h-4" />
-                    Войти
+                    {t('auth.login')}
                   </button>
 
                   <div className="grid grid-cols-1 gap-3">
                     <button onClick={handleGoogleLogin} className="w-full border py-3 rounded-lg flex items-center justify-center gap-2">
                       <img alt="" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" />
-                      Войти через Google
+                      {t('auth.login')} через Google
                     </button>
                     <button onClick={handleSendMagicLink} className="w-full border py-3 rounded-lg">
-                      Войти по ссылке на email
+                      {t('auth.login')} по ссылке на email
                     </button>
                   </div>
 
@@ -579,29 +588,43 @@ function App() {
                       Забыли пароль?
                     </button>
                     <button onClick={() => { setIsRegistering(true); setLoginError(''); }} className="text-blue-600 hover:text-blue-700">
-                      Нет аккаунта? Регистрация
+                      Регистрация
                     </button>
                   </div>
+
+                  {/* Блок верификации */}
+                  {verifyNotice && (
+                    <div className="bg-yellow-50 text-yellow-800 px-4 py-3 rounded-lg text-sm mt-3">
+                      <div className="mb-2">{verifyNotice}</div>
+                      <button
+                        onClick={resendVerificationEmail}
+                        className="px-3 py-2 bg-yellow-600 text-white rounded-lg disabled:opacity-60"
+                        disabled={resendBusy}
+                      >
+                        {resendBusy ? 'Отправляем…' : 'Отправить письмо ещё раз'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
               <>
-                <h2 className="text-3xl font-bold text-gray-800 mb-2">Регистрация</h2>
-                <p className="text-gray-600 mb-6">Создайте новый аккаунт</p>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">{t('auth.signUp')}</h2>
+                <p className="text-gray-600 mb-6">{t('auth.createNew')}</p>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Имя</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.name')}</label>
                     <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Иван Иванов" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.email')}</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Пароль</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.password')}</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type={showRegisterPassword ? "text" : "password"} value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRegister()} className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Минимум 6 символов" />
@@ -629,7 +652,7 @@ function App() {
           </div>
         </div>
 
-        {/* Модалка восстановления пароля */}
+        {/* Reset Password Modal */}
         {resetOpen && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-xl shadow-xl p-6">
@@ -637,9 +660,7 @@ function App() {
                 <h3 className="text-lg font-semibold flex items-center gap-2"><KeyRound className="w-5 h-5" /> Восстановление пароля</h3>
                 <button onClick={() => setResetOpen(false)} className="text-gray-500 hover:text-gray-700"><X className="w-5 h-5" /></button>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Мы отправим письмо со ссылкой для сброса пароля.
-              </p>
+              <p className="text-sm text-gray-600 mb-4">Мы отправим письмо со ссылкой для сброса пароля.</p>
               <input
                 type="email"
                 className="w-full border rounded-lg px-3 py-2 mb-3"
@@ -660,24 +681,14 @@ function App() {
     );
   }
 
-  // Порядок категорий: RuTube выше "Видеокурсы"
+  // Категории по новому порядку
   const categories = [
-    { id: 'free',    title: 'Бесплатные игры', icon: Gamepad2,   color: 'green',   bgColor: 'bg-green-500',   hoverColor: 'hover:bg-green-600' },
-    { id: 'online',  title: 'Онлайн игры',     icon: Gamepad2,   color: 'blue',    bgColor: 'bg-blue-500',    hoverColor: 'hover:bg-blue-600' },
-    { id: 'board',   title: 'Настольные игры', icon: Package,    color: 'purple',  bgColor: 'bg-purple-500',  hoverColor: 'hover:bg-purple-600' },
-    { id: 'courses', title: 'Курсы (PDF)',     icon: BookOpen,   color: 'orange',  bgColor: 'bg-orange-500',  hoverColor: 'hover:bg-orange-600' },
-    { id: 'rutube',  title: 'Видео (RuTube)',  icon: PlayCircle, color: 'emerald', bgColor: 'bg-emerald-500', hoverColor: 'hover:bg-emerald-600' },
-    { id: 'videos',  title: 'Видеокурсы',      icon: PlayCircle, color: 'rose',    bgColor: 'bg-rose-500',    hoverColor: 'hover:bg-rose-600' },
-  ];
-
-  const buildOrderHref = () => {
-    if (settings.orderButtonLink) return settings.orderButtonLink;
-    if (settings.orderEmail) {
-      const subject = encodeURIComponent('Заказ с сайта Logistoria');
-      return `mailto:${settings.orderEmail}?subject=${subject}`;
-    }
-    return '#';
-  };
+    { id: 'free',    title: 'Бесплатные игры', icon: Gamepad2,  bgColor: 'bg-green-500' },
+    { id: 'board',   title: 'Настольные игры', icon: Package,   bgColor: 'bg-purple-500' },
+    { id: 'rutube',  title: 'Видео (RuTube)',  icon: PlayCircle,bgColor: 'bg-emerald-500' },
+    { id: 'online',  title: 'Онлайн игры',     icon: Gamepad2,  bgColor: 'bg-blue-500' },
+    { id: 'courses', title: 'Курсы (PDF)',     icon: BookOpen,  bgColor: 'bg-orange-500' },
+  ].sort((a,b)=> CATEGORIES_ORDERED.indexOf(a.id) - CATEGORIES_ORDERED.indexOf(b.id));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -694,17 +705,12 @@ function App() {
             <h1 className="text-xl font-bold">Logistoria</h1>
           </div>
           <div className="flex items-center gap-4">
+            <LanguageSwitcher />
             {currentUser?.role === 'admin' && (
-              <>
-                <button onClick={() => setShowUsersModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg">
-                  <Users className="w-4 h-4" />
-                  Пользователи
-                </button>
-                <button onClick={() => setShowSettingsModal(true)} className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg">
-                  <Settings className="w-4 h-4" />
-                  Настройки
-                </button>
-              </>
+              <button onClick={() => setShowUsersModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg">
+                <Users className="w-4 h-4" />
+                Пользователи
+              </button>
             )}
             <span className="text-gray-600">{currentUser?.name}</span>
             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800">
@@ -719,20 +725,11 @@ function App() {
         <h2 className="text-3xl font-bold mb-2">Добро пожаловать, {currentUser?.name}!</h2>
         <p className="text-gray-600 mb-8">Выберите игру или курс</p>
 
-        {!isAdminClaim && currentUser?.role === 'admin' && (
-          <div className="mb-6 p-4 rounded-lg bg-yellow-50 text-yellow-800 border border-yellow-200">
-            <strong>Внимание:</strong> учётка помечена как <em>admin</em> в коллекции <code>users</code>, но нет серверного
-            <code> admin</code>-claim. Добавьте claim (скрипт <code>setAdminClaim.cjs</code>) и перелогиньтесь.
-          </div>
-        )}
-
         <div className="space-y-12">
           {categories.map(category => {
             const Icon = category.icon;
             const categoryGames = getCategoryGames(category.id);
-
-            // Админ всегда имеет доступ, иначе проверяем план
-            const allowed = currentUser?.role === 'admin' ? true : hasAccess(currentUser, category.id);
+            const canAccess = canAccessCategory(category.id);
 
             return (
               <section key={category.id} className="bg-white rounded-xl shadow-sm p-6">
@@ -740,32 +737,23 @@ function App() {
                   <div className={`${category.bgColor} p-3 rounded-lg`}>
                     <Icon className="w-6 h-6 text-white" />
                   </div>
-                  <h3 className="text-2xl font-bold flex items-center gap-3">
-                    {category.title}
-                    {!allowed && (
-                      <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">нет доступа</span>
-                    )}
-                  </h3>
+                  <h3 className="text-2xl font-bold">{category.title}</h3>
                 </div>
 
-                <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${!allowed ? 'opacity-60 pointer-events-none select-none' : ''}`}>
+                <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${!canAccess ? 'opacity-70 pointer-events-none select-none' : ''}`}>
                   {categoryGames.map(game => (
-                    <div key={game.id} className="relative border rounded-lg p-5 hover:shadow-lg transition group">
+                    <div key={game.id} className="border rounded-lg p-5 hover:shadow-lg transition group">
                       <div className="flex items-start justify-between mb-3">
                         {category.id === 'courses'
                           ? <BookOpen className="w-8 h-8" />
-                          : <PlayCircle className="w-8 h-8" />
+                          : category.id === 'rutube'
+                          ? <PlayCircle className="w-8 h-8" />
+                          : <Gamepad2 className="w-8 h-8" />
                         }
-                        {currentUser?.role === 'admin' && isAdminClaim && (
+                        {currentUser?.role === 'admin' && !game.isBuiltIn && (
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100">
-                            <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать">
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            {game._source === 'db' && (
-                              <button onClick={() => handleDeleteGame(game)} className="p-1 text-red-600" title="Удалить">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать"><Edit2 className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title="Удалить"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         )}
                       </div>
@@ -777,42 +765,23 @@ function App() {
                         <button
                           onClick={() => openRutube(game.url)}
                           className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
-                          disabled={!allowed}
                         >
                           Смотреть на месте
                         </button>
                       ) : (
                         <a
-                          href={allowed ? game.url : undefined}
-                          onClick={(e) => { if (!allowed) e.preventDefault(); }}
+                          href={game.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm ${!allowed ? 'cursor-not-allowed' : ''}`}
+                          className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
                         >
-                          {game.type === 'pdf'
-                            ? 'Скачать PDF'
-                            : game.type === 'video'
-                            ? 'Смотреть видео'
-                            : 'Открыть'}
+                          {game.type === 'pdf' ? 'Скачать PDF' : 'Открыть'}
                         </a>
-                      )}
-
-                      {!allowed && (
-                        <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px] flex items-end p-5">
-                          <div className="w-full">
-                            <a
-                              href={buildOrderHref()}
-                              className="w-full inline-block text-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                            >
-                              Получить доступ
-                            </a>
-                          </div>
-                        </div>
                       )}
                     </div>
                   ))}
 
-                  {currentUser?.role === 'admin' && isAdminClaim && (
+                  {currentUser?.role === 'admin' && (
                     <button
                       onClick={() => openAddModal(category.id)}
                       className="border-2 border-dashed rounded-lg p-5 hover:border-blue-500 flex flex-col items-center justify-center min-h-[200px]"
@@ -822,43 +791,34 @@ function App() {
                     </button>
                   )}
                 </div>
+
+                {!canAccess && (
+                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
+                    <div className="font-medium mb-2">Этот раздел доступен в PRO</div>
+                    <a href="#upgrade" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
+                      Оформить PRO
+                    </a>
+                  </div>
+                )}
               </section>
             );
           })}
-
-          {/* Кнопка "Заказать" внизу страницы */}
-          <div className="pt-4">
-            <a
-              href={buildOrderHref()}
-              className="block w-full sm:w-auto text-center px-6 py-3 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-              target={settings.orderButtonLink ? '_blank' : undefined}
-              rel={settings.orderButtonLink ? 'noopener noreferrer' : undefined}
-            >
-              {settings.orderButtonText || 'Заказать'}
-            </a>
-          </div>
         </div>
       </main>
 
-      {/* Модалка добавления/редактирования карточек */}
       {(showAddModal || editingGame) && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
             <h3 className="text-xl font-bold mb-4">{editingGame ? 'Редактировать' : 'Добавить элемент'}</h3>
 
-            {!editingGame && selectedCategory === 'videos' && (
-              <div className="mb-3 text-sm text-gray-600">
-                Укажите ссылку на YouTube/Vimeo/MP4. Пример: <code>https://youtu.be/xxxx</code>
-              </div>
-            )}
             {!editingGame && selectedCategory === 'rutube' && (
               <div className="mb-3 text-sm text-gray-600">
-                Вставьте ссылку на RuTube: <code>https://rutube.ru/video/...</code>
+                Вставьте ссылку на RuTube: https://rutube.ru/video/...
               </div>
             )}
             {!editingGame && selectedCategory === 'courses' && (
               <div className="mb-3 text-sm text-gray-600">
-                Укажите путь к PDF. Пример: <code>/downloads/professional-course.pdf</code>
+                Путь к PDF. Пример: /downloads/professional-course.pdf
               </div>
             )}
 
@@ -882,15 +842,7 @@ function App() {
                 value={formData.url}
                 onChange={(e) => setFormData({ ...formData, url: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg"
-                placeholder={
-                  (editingGame?.category || selectedCategory) === 'courses'
-                    ? 'https://.../file.pdf'
-                    : (editingGame?.category || selectedCategory) === 'rutube'
-                    ? 'https://rutube.ru/video/...'
-                    : (editingGame?.category || selectedCategory) === 'videos'
-                    ? 'https://youtu.be/... или https://.../video.mp4'
-                    : 'https://...'
-                }
+                placeholder="https://..."
               />
             </div>
 
@@ -907,10 +859,9 @@ function App() {
         </div>
       )}
 
-      {/* Модалка управления пользователями */}
       {showUsersModal && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[80vh] overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
             <div className="p-6 border-b flex justify-between items-center">
               <h3 className="text-xl font-bold">Управление пользователями</h3>
               <button onClick={() => setShowUsersModal(false)} className="text-gray-400 hover:text-gray-600">
@@ -921,9 +872,9 @@ function App() {
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               {users.map(user => (
                 <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg mb-4">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{user.name}</p>
-                    <p className="text-sm text-gray-500 truncate">{user.email}</p>
+                  <div>
+                    <p className="font-medium">{user.name}</p>
+                    <p className="text-sm text-gray-500">{user.email}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-1 rounded text-xs ${user.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100'}`}>
@@ -932,22 +883,12 @@ function App() {
                     <span className={`px-2 py-1 rounded text-xs ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                       {user.status}
                     </span>
-                    <select
-                      value={user.plan || 'free'}
-                      onChange={(e) => handleChangeUserPlan(user.id, e.target.value)}
-                      className="text-xs border rounded px-2 py-1"
-                      title="План доступа"
-                    >
-                      <option value="free">free</option>
-                      <option value="basic">basic</option>
-                      <option value="pro">pro</option>
-                    </select>
                     {user.id !== currentUser?.id && (
                       <>
                         <button onClick={() => handleChangeUserRole(user.id)} className="p-2 text-purple-600" title="Сменить роль">
                           <Shield className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleToggleUserStatus(user.id)} className="p-2 text-orange-600" title="Заблокировать / Разблокировать">
+                        <button onClick={() => handleToggleUserStatus(user.id)} className="p-2 text-orange-600" title="Блок/Разблок">
                           {user.status === 'active' ? <Ban className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
                         </button>
                         <button onClick={() => handleDeleteUser(user.id)} className="p-2 text-red-600" title="Удалить">
@@ -967,59 +908,6 @@ function App() {
         </div>
       )}
 
-      {/* Модалка настроек (кнопка "Заказать") */}
-      {showSettingsModal && currentUser?.role === 'admin' && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-xl shadow-xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Settings className="w-5 h-5" /> Настройки сайта
-              </h3>
-              <button onClick={() => setShowSettingsModal(false)} className="text-gray-500 hover:text-gray-700"><X className="w-5 h-5" /></button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Текст кнопки «Заказать»</label>
-                <input
-                  type="text"
-                  className="w-full border rounded-lg px-3 py-2"
-                  value={settings.orderButtonText}
-                  onChange={(e) => setSettings(s => ({ ...s, orderButtonText: e.target.value }))}
-                  placeholder="Заказать"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ссылка для кнопки (необязательно)</label>
-                <input
-                  type="url"
-                  className="w-full border rounded-lg px-3 py-2"
-                  value={settings.orderButtonLink}
-                  onChange={(e) => setSettings(s => ({ ...s, orderButtonLink: e.target.value }))}
-                  placeholder="https://forms.yourdomain.com/order"
-                />
-                <p className="text-xs text-gray-500 mt-1">Если указать ссылку — кнопка откроет её в новой вкладке. Иначе откроется почтовый клиент на email ниже.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email для заказов (если ссылка пустая)</label>
-                <input
-                  type="email"
-                  className="w-full border rounded-lg px-3 py-2"
-                  value={settings.orderEmail}
-                  onChange={(e) => setSettings(s => ({ ...s, orderEmail: e.target.value }))}
-                  placeholder="orders@example.com"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 mt-6">
-              <button onClick={() => setShowSettingsModal(false)} className="px-4 py-2 border rounded-lg">Отмена</button>
-              <button onClick={saveSettings} className="px-4 py-2 bg-emerald-600 text-white rounded-lg">Сохранить</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* RuTube modal */}
       <RuTubeModal
         open={ruModalOpen}
@@ -1031,6 +919,3 @@ function App() {
 }
 
 export default App;
-
-
-
