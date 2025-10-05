@@ -736,7 +736,7 @@ function App() {
                 {category.id === 'contacts' ? (
                   <div className="grid sm:grid-cols-2 gap-4">
                     <a
-                      href="hhttps://t.me/supplychains"      // <= подставь свой URL Telegram-канала
+                      href="https://t.me/supplychains"      // <= подставь свой URL Telegram-канала
                       target="_blank"
                       rel="noopener noreferrer"
                       className="border rounded-lg p-5 hover:shadow-lg transition flex items-center justify-between"
