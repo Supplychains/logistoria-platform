@@ -23,7 +23,7 @@ import { sendMagicLink, completeMagicLinkSignIn } from './passwordless';
 import { isDisposableEmail } from './emailUtils';
 import RuTubeModal from './RuTubeModal';
 
-// ---------- Константы почтовых CTA ----------
+// ---------- Почтовые CTA ----------
 const MAIL_TO = 'project@logistoria.com';
 const MAILTO_PRO = `mailto:${MAIL_TO}?subject=${encodeURIComponent('Logistoria PRO — заявка')}&body=${encodeURIComponent(
   'Здравствуйте! Хотим подключить PRO-доступ к Logistoria.\n\nКомпания/ФИО:\nКонтакты:\nКоличество пользователей:\nКомментарии:\n'
@@ -39,27 +39,27 @@ const INITIAL_GAMES = [
   { id: 'free-2', title: 'Shipster', description: 'Симулятор управления доставками и маршрутизацией', url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
 
   // Board (Free access)
-  { id: 'board-1', title: 'Кроссдок', description: 'Настольная игра в логистику', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
-  { id: 'board-2', title: 'The Beer Game', description: 'Адаптированная версия самой известной игры в логистику', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
+  { id: 'board-1', title: 'Krossdok', description: 'Настольная игра по управлению кросс-докингом', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
+  { id: 'board-2', title: 'The Beer Game', description: 'Физическая версия классической логистической игры', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
 
-  // Rutube (Free access) — наполняется через админку
+  // Rutube (Free access) — пополняется через админку
 
   // Online (PRO)
-  { id: 'online-1', title: 'Kadena - The Supply Chain Game', description: 'Комплексная симуляция управления цепочками поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
-  { id: 'online-2', title: 'The Beer Game Online', description: 'Онлайн версия самой известной игры в логистику для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
+  { id: 'online-1', title: 'Supply Chain Game', description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
+  { id: 'online-2', title: 'Beer Game', description: 'Классическая игра для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
 
   // Courses (PRO)
-  { id: 'course-1', title: 'Курс для профессионалов', description: 'Полезные материалы для профессиональных закупщиков и логистов', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
-  { id: 'course-2', title: 'Логистика для школьников и студентов', description: 'Введение в логистику для школьников и студентов на понятном им языке', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
+  { id: 'course-1', title: 'Курс для профессионалов', description: 'Продвинутое обучение управлению цепями поставок', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
+  { id: 'course-2', title: 'Курс для школьников и студентов', description: 'Введение в логистику для начинающих', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
 ];
 
-// Порядок секций
-const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses'];
+// Порядок секций — добавили 'contacts' в самом конце
+const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses', 'contacts'];
 
 function App() {
   const { t } = useTranslation();
 
-  // ---------- Навигация/состояния ----------
+  // ---------- Состояния ----------
   const [currentPage, setCurrentPage] = useState('login');
 
   const [currentUser, setCurrentUser] = useState(null); // {id, email, name, role: 'user'|'pro'|'admin'}
@@ -101,7 +101,7 @@ function App() {
 
   const [showUsersModal, setShowUsersModal] = useState(false);
 
-  // ---------- Завершение passwordless при входе по ссылке ----------
+  // ---------- Завершение magic-link ----------
   useEffect(() => {
     completeMagicLinkSignIn()
       .then(async (user) => {
@@ -138,7 +138,7 @@ function App() {
             showNotification('Ваш аккаунт заблокирован', 'error');
           }
         } else {
-          // создаём профиль при первом входе любого типа
+          // профиль при первом входе
           const payload = {
             email: firebaseUser.email,
             name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
@@ -165,7 +165,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // ---------- Хелпер профиля ----------
+  // ---------- Профиль-хелпер ----------
   const ensureUserDoc = async (uid, email, displayName) => {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
@@ -499,6 +499,7 @@ function App() {
 
   // ---------- Доступы по ролям ----------
   const canAccessCategory = (categoryId) => {
+    if (categoryId === 'contacts') return true; // всем доступно
     const role = (currentUser?.role || 'user').toLowerCase();
     if (role === 'admin' || role === 'pro') return true;
     return ['free', 'board', 'rutube'].includes(categoryId); // user (free)
@@ -671,11 +672,13 @@ function App() {
   // ---------- DASHBOARD ----------
 
   const categories = [
-    { id: 'free',    title: 'Бесплатные игры', icon: Gamepad2,  bgColor: 'bg-green-500' },
-    { id: 'board',   title: 'Настольные игры', icon: Package,   bgColor: 'bg-purple-500' },
-    { id: 'rutube',  title: 'Видео (RuTube)',  icon: PlayCircle,bgColor: 'bg-emerald-500' },
-    { id: 'online',  title: 'Онлайн игры',     icon: Gamepad2,  bgColor: 'bg-blue-500' },
-    { id: 'courses', title: 'Курсы (PDF)',     icon: BookOpen,  bgColor: 'bg-orange-500' }
+    { id: 'free',     title: 'Бесплатные игры',   icon: Gamepad2,   bgColor: 'bg-green-500' },
+    { id: 'board',    title: 'Настольные игры',   icon: Package,    bgColor: 'bg-purple-500' },
+    { id: 'rutube',   title: 'Видео (RuTube)',    icon: PlayCircle, bgColor: 'bg-emerald-500' },
+    { id: 'online',   title: 'Онлайн игры',       icon: Gamepad2,   bgColor: 'bg-blue-500' },
+    { id: 'courses',  title: 'Курсы (PDF)',       icon: BookOpen,   bgColor: 'bg-orange-500' },
+    // новый раздел — всегда доступен, внизу
+    { id: 'contacts', title: 'Новости и Контакты', icon: Mail,       bgColor: 'bg-teal-500' }
   ].sort((a,b)=> CATEGORIES_ORDERED.indexOf(a.id) - CATEGORIES_ORDERED.indexOf(b.id));
 
   const role = (currentUser?.role || 'user').toLowerCase();
@@ -730,82 +733,114 @@ function App() {
                   <h3 className="text-2xl font-bold">{category.title}</h3>
                 </div>
 
-                <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${!canAccess ? 'opacity-70 pointer-events-none select-none' : ''}`}>
-                  {categoryGames.map(game => (
-                    <div key={game.id} className="border rounded-lg p-5 hover:shadow-lg transition group">
-                      <div className="flex items-start justify-between mb-3">
-                        {category.id === 'courses'
-                          ? <BookOpen className="w-8 h-8" />
-                          : category.id === 'rutube'
-                          ? <PlayCircle className="w-8 h-8" />
-                          : <Gamepad2 className="w-8 h-8" />
-                        }
-                        {role === 'admin' && !game.isBuiltIn && (
-                          <div className="flex gap-2 opacity-0 group-hover:opacity-100">
-                            <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать"><Edit2 className="w-4 h-4" /></button>
-                            <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title="Удалить"><Trash2 className="w-4 h-4" /></button>
-                          </div>
-                        )}
+                {category.id === 'contacts' ? (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <a
+                      href="hhttps://t.me/supplychains"      // <= подставь свой URL Telegram-канала
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="border rounded-lg p-5 hover:shadow-lg transition flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-semibold mb-1">Подписаться в Telegram</div>
+                        <div className="text-sm text-gray-600">Будьте в курсе новостей и обновлений</div>
                       </div>
+                      <span className="px-4 py-2 bg-blue-600 text-white rounded-lg">Открыть</span>
+                    </a>
 
-                      <h4 className="font-semibold mb-2">{game.title}</h4>
-                      <p className="text-sm text-gray-600 mb-4">{game.description}</p>
+                    <a
+                      href="https://wa.me/message/HGCBTCREGJG3L1" // <= подставь свой URL WhatsApp-чата
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="border rounded-lg p-5 hover:shadow-lg transition flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-semibold mb-1">Написать в WhatsApp</div>
+                        <div className="text-sm text-gray-600">Связаться с продавцами и задать вопросы</div>
+                      </div>
+                      <span className="px-4 py-2 bg-green-600 text-white rounded-lg">Открыть</span>
+                    </a>
+                  </div>
+                ) : (
+                  <>
+                    <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${!canAccess ? 'opacity-70 pointer-events-none select-none' : ''}`}>
+                      {categoryGames.map(game => (
+                        <div key={game.id} className="border rounded-lg p-5 hover:shadow-lg transition group">
+                          <div className="flex items-start justify-between mb-3">
+                            {category.id === 'courses'
+                              ? <BookOpen className="w-8 h-8" />
+                              : category.id === 'rutube'
+                              ? <PlayCircle className="w-8 h-8" />
+                              : <Gamepad2 className="w-8 h-8" />
+                            }
+                            {role === 'admin' && !game.isBuiltIn && (
+                              <div className="flex gap-2 opacity-0 group-hover:opacity-100">
+                                <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать"><Edit2 className="w-4 h-4" /></button>
+                                <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title="Удалить"><Trash2 className="w-4 h-4" /></button>
+                              </div>
+                            )}
+                          </div>
 
-                      {game.type === 'rutube' ? (
+                          <h4 className="font-semibold mb-2">{game.title}</h4>
+                          <p className="text-sm text-gray-600 mb-4">{game.description}</p>
+
+                          {game.type === 'rutube' ? (
+                            <button
+                              onClick={() => openRutube(game.url)}
+                              className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
+                            >
+                              Смотреть на месте
+                            </button>
+                          ) : (
+                            <a
+                              href={game.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
+                            >
+                              {game.type === 'pdf' ? 'Скачать PDF' : 'Открыть'}
+                            </a>
+                          )}
+                        </div>
+                      ))}
+
+                      {role === 'admin' && (
                         <button
-                          onClick={() => openRutube(game.url)}
-                          className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
+                          onClick={() => openAddModal(category.id)}
+                          className="border-2 border-dashed rounded-lg p-5 hover:border-blue-500 flex flex-col items-center justify-center min-h-[200px]"
                         >
-                          Смотреть на месте
+                          <Plus className="w-12 h-12 text-gray-400 mb-2" />
+                          <p className="text-gray-600">Добавить</p>
                         </button>
-                      ) : (
-                        <a
-                          href={game.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
-                        >
-                          {game.type === 'pdf' ? 'Скачать PDF' : 'Открыть'}
-                        </a>
                       )}
                     </div>
-                  ))}
 
-                  {role === 'admin' && (
-                    <button
-                      onClick={() => openAddModal(category.id)}
-                      className="border-2 border-dashed rounded-lg p-5 hover:border-blue-500 flex flex-col items-center justify-center min-h-[200px]"
-                    >
-                      <Plus className="w-12 h-12 text-gray-400 mb-2" />
-                      <p className="text-gray-600">Добавить</p>
-                    </button>
-                  )}
-                </div>
+                    {/* CTA "Заказать игры" для раздела Настольные игры */}
+                    {category.id === 'board' && (
+                      <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-center justify-between flex-col sm:flex-row gap-3">
+                        <div className="font-medium">Хотите получить физические комплекты настольных игр?</div>
+                        <a
+                          href={MAILTO_BOARD}
+                          className="inline-block px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                        >
+                          Заказать игры
+                        </a>
+                      </div>
+                    )}
 
-                {/* Доп. плашка для "Настольные игры": CTA "Заказать игры" */}
-                {category.id === 'board' && (
-                  <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-center justify-between flex-col sm:flex-row gap-3">
-                    <div className="font-medium">Хотите получить физические комплекты настольных игр?</div>
-                    <a
-                      href={MAILTO_BOARD}
-                      className="inline-block px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-                    >
-                      Заказать игры
-                    </a>
-                  </div>
-                )}
-
-                {/* Для закрытых разделов — CTA "Оформить PRO" (mailto) */}
-                {!canAccess && (
-                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 flex items-center justify-between flex-col sm:flex-row gap-3">
-                    <div className="font-medium">Этот раздел доступен в PRO</div>
-                    <a
-                      href={MAILTO_PRO}
-                      className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
-                    >
-                      Оформить PRO
-                    </a>
-                  </div>
+                    {/* Закрытые разделы → CTA "Оформить PRO" */}
+                    {!canAccess && (
+                      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 flex items-center justify-between flex-col sm:flex-row gap-3">
+                        <div className="font-medium">Этот раздел доступен в PRO</div>
+                        <a
+                          href={MAILTO_PRO}
+                          className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                        >
+                          Оформить PRO
+                        </a>
+                      </div>
+                    )}
+                  </>
                 )}
               </section>
             );
@@ -934,4 +969,3 @@ function App() {
 }
 
 export default App;
-
