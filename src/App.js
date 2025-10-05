@@ -39,18 +39,18 @@ const INITIAL_GAMES = [
   { id: 'free-2', title: 'Shipster', description: 'Симулятор управления доставками и маршрутизацией', url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
 
   // Board (Free access)
-  { id: 'board-1', title: 'Krossdok', description: 'Настольная игра по управлению кросс-докингом', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
-  { id: 'board-2', title: 'The Beer Game', description: 'Физическая версия классической логистической игры', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
+  { id: 'board-1', title: 'Кроссдок', description: 'Настольная игра в логистику', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
+  { id: 'board-2', title: 'The Beer Game', description: 'Адаптированная версия самой известной игры в логистику', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
 
   // Rutube (Free access) — наполняется через админку
 
   // Online (PRO)
-  { id: 'online-1', title: 'Supply Chain Game', description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
-  { id: 'online-2', title: 'Beer Game', description: 'Классическая игра для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
+  { id: 'online-1', title: 'Kadena - The Supply Chain Game', description: 'Комплексная симуляция управления цепочками поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
+  { id: 'online-2', title: 'The Beer Game Online', description: 'Онлайн версия самой известной игры в логистику для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
 
   // Courses (PRO)
-  { id: 'course-1', title: 'Курс для профессионалов', description: 'Продвинутое обучение управлению цепями поставок', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
-  { id: 'course-2', title: 'Курс для школьников и студентов', description: 'Введение в логистику для начинающих', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
+  { id: 'course-1', title: 'Курс для профессионалов', description: 'Полезные материалы для профессиональных закупщиков и логистов', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
+  { id: 'course-2', title: 'Логистика для школьников и студентов', description: 'Введение в логистику для школьников и студентов на понятном им языке', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
 ];
 
 // Порядок секций
