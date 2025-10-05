@@ -1,3 +1,4 @@
+// src/App.js
 import React, { useState, useEffect } from 'react';
 import {
   Truck, BookOpen, Gamepad2, Package, Plus, Edit2, Trash2, LogOut,
@@ -12,7 +13,7 @@ import { auth, db } from './firebase';
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup,
-  signOut, onAuthStateChanged, sendEmailVerification,
+  signOut, onAuthStateChanged, sendEmailVerification
 } from 'firebase/auth';
 import {
   collection, addDoc, updateDoc, deleteDoc, doc, getDocs, setDoc, getDoc
@@ -30,7 +31,7 @@ const INITIAL_GAMES = [
   // Board (Free access)
   { id: 'board-1', title: 'Krossdok', description: 'Настольная игра по управлению кросс-докингом', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
   { id: 'board-2', title: 'The Beer Game', description: 'Физическая версия классической логистической игры', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
-  // Rutube (Free access) — добавляйте через админку
+  // Rutube (Free access) — наполняется через админку
   // Online (PRO)
   { id: 'online-1', title: 'Supply Chain Game', description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
   { id: 'online-2', title: 'Beer Game', description: 'Классическая игра для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
@@ -42,25 +43,41 @@ const INITIAL_GAMES = [
 // Порядок секций
 const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses'];
 
+// mailto для PRO и Заказа настольных игр
+const MAIL_TO = 'project@logistoria.com';
+const MAILTO_PRO = `mailto:${MAIL_TO}?subject=${encodeURIComponent('Logistoria PRO — заявка')}&body=${encodeURIComponent(
+  'Здравствуйте! Хотим подключить PRO-доступ к Logistoria.\n\nКомпания/ФИО:\nКонтакты:\nКоличество пользователей:\nКомментарии:\n'
+)}`;
+const MAILTO_BOARD = `mailto:${MAIL_TO}?subject=${encodeURIComponent('Заказать настольные игры')}&body=${encodeURIComponent(
+  'Здравствуйте! Хотим заказать настольные игры Logistoria.\n\nКомпания/ФИО:\nКонтакты:\nКакие игры интересуют:\nКоличество комплектов:\nКомментарии:\n'
+)}`;
+
 function App() {
   const { t } = useTranslation();
 
+  // Навигация
   const [currentPage, setCurrentPage] = useState('login');
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userPlan, setUserPlan] = useState('free'); // 'free' | 'pro'
-  const [games, setGames] = useState([]);
+
+  // Пользователь
+  const [currentUser, setCurrentUser] = useState(null); // {id, email, name, role: 'user'|'pro'|'admin'}
   const [users, setUsers] = useState([]);
+
+  // Контент
+  const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Модалки/формы
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [editingGame, setEditingGame] = useState(null);
 
+  // Логин/регистрация
   const [showPassword, setShowPassword] = useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
-  const [showUsersModal, setShowUsersModal] = useState(false);
-  const [notification, setNotification] = useState(null);
+  const [isRegistering, setIsRegistering] = useState(false);
 
+  // Уведомления/ошибки
+  const [notification, setNotification] = useState(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -69,12 +86,9 @@ function App() {
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerError, setRegisterError] = useState('');
-  const [isRegistering, setIsRegistering] = useState(false);
 
+  // Форма добавления/редактирования каталога
   const [formData, setFormData] = useState({ title: '', description: '', url: '' });
-
-  // серверный custom-claim admin
-  const [isAdminClaim, setIsAdminClaim] = useState(false);
 
   // RuTube modal
   const [ruModalOpen, setRuModalOpen] = useState(false);
@@ -90,14 +104,12 @@ function App() {
   const [verifyNotice, setVerifyNotice] = useState('');
   const [resendBusy, setResendBusy] = useState(false);
 
-  // Завершение passwordless при открытии
+  // Завершение passwordless при открытии (если пришли по magic-link)
   useEffect(() => {
     completeMagicLinkSignIn()
       .then(async (user) => {
         if (user) {
-          const tokenResult = await user.getIdTokenResult(true).catch(() => null);
-          setIsAdminClaim(!!tokenResult?.claims?.admin);
-          await afterLogin(user.uid, user.email, user.displayName);
+          await ensureUserDoc(user.uid, user.email, user.displayName);
           setCurrentPage('dashboard');
           await loadGames();
         }
@@ -105,13 +117,10 @@ function App() {
       .catch(() => {});
   }, []);
 
-  // Auth state
+  // Следим за auth
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const tokenResult = await firebaseUser.getIdTokenResult(true).catch(() => null);
-        setIsAdminClaim(!!tokenResult?.claims?.admin);
-
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDoc = await getDoc(userDocRef);
 
@@ -122,9 +131,8 @@ function App() {
               id: firebaseUser.uid,
               email: firebaseUser.email,
               name: data.name,
-              role: data.role,
+              role: (data.role || 'user').toLowerCase()
             });
-            setUserPlan(data.plan || 'free');
             setCurrentPage('dashboard');
             await loadGames();
             if (data.role === 'admin') await loadUsers();
@@ -133,29 +141,26 @@ function App() {
             showNotification('Ваш аккаунт заблокирован', 'error');
           }
         } else {
-          // если нет — создаём
+          // Создаём профиль при первом входе любого типа
           const payload = {
             email: firebaseUser.email,
             name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
             role: 'user',
             status: 'active',
-            plan: 'free',
-            createdAt: new Date().toISOString(),
+            createdAt: new Date().toISOString()
           };
           await setDoc(userDocRef, payload, { merge: true });
           setCurrentUser({
             id: firebaseUser.uid,
             email: firebaseUser.email,
             name: payload.name,
-            role: payload.role,
+            role: payload.role
           });
-          setUserPlan('free');
           setCurrentPage('dashboard');
           await loadGames();
         }
       } else {
         setCurrentUser(null);
-        setUserPlan('free');
         setCurrentPage('login');
       }
       setLoading(false);
@@ -163,7 +168,8 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  const afterLogin = async (uid, email, displayName) => {
+  // Хелпер — убедиться что профиль есть
+  const ensureUserDoc = async (uid, email, displayName) => {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
     if (!snap.exists()) {
@@ -172,18 +178,16 @@ function App() {
         name: displayName || (email ? email.split('@')[0] : 'User'),
         role: 'user',
         status: 'active',
-        plan: 'free',
-        createdAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
       });
-      setUserPlan('free');
-    } else if (!snap.data().plan) {
-      await setDoc(ref, { plan: 'free' }, { merge: true });
-      setUserPlan('free');
+      setCurrentUser({ id: uid, email, name: displayName || (email ? email.split('@')[0] : 'User'), role: 'user' });
     } else {
-      setUserPlan(snap.data().plan || 'free');
+      const d = snap.data();
+      setCurrentUser({ id: uid, email, name: d.name, role: (d.role || 'user').toLowerCase() });
     }
   };
 
+  // ====== Каталог ======
   const loadGames = async () => {
     try {
       const gamesSnapshot = await getDocs(collection(db, 'games'));
@@ -208,35 +212,31 @@ function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // ======== АУТЕНТИФИКАЦИЯ ========
+  // ====== Аутентификация ======
 
-  // ЛОГИН по паролю: блокируем вход, если почта не верифицирована
+  // ЛОГИН по паролю: блокируем вход, если email не подтверждён
   const handleLogin = async () => {
     try {
       setLoginError('');
       setVerifyNotice('');
-      const userCredential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
-      const user = userCredential.user;
-
+      const cred = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      const user = cred.user;
       if (!user.emailVerified) {
         await signOut(auth);
         setVerifyNotice('Ваш e-mail не подтверждён. Проверьте почту или отправьте письмо ещё раз.');
         return;
       }
-
-      await afterLogin(user.uid, user.email, user.displayName);
-      const tokenResult = await user.getIdTokenResult(true);
-      setIsAdminClaim(!!tokenResult?.claims?.admin);
-      showNotification(t('auth.welcomeBack'));
+      await ensureUserDoc(user.uid, user.email, user.displayName);
+      showNotification('Добро пожаловать!');
     } catch {
-      setLoginError(t('auth.invalidCreds'));
+      setLoginError('Неверный email или пароль');
     }
   };
 
   // РЕГИСТРАЦИЯ: запрещаем disposable-домены, отправляем verify email и выходим
   const handleRegister = async () => {
     if (!registerName || !registerEmail || !registerPassword) {
-      setRegisterError(t('admin.fillAll'));
+      setRegisterError('Заполните все поля');
       return;
     }
     if (registerPassword.length < 6) {
@@ -249,16 +249,15 @@ function App() {
     }
     try {
       setRegisterError('');
-      const userCredential = await createUserWithEmailAndPassword(auth, registerEmail, registerPassword);
-      const user = userCredential.user;
+      const cred = await createUserWithEmailAndPassword(auth, registerEmail, registerPassword);
+      const user = cred.user;
 
       await setDoc(doc(db, 'users', user.uid), {
         email: registerEmail,
         name: registerName,
         role: 'user',
         status: 'active',
-        plan: 'free',
-        createdAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
       });
 
       await sendEmailVerification(user);
@@ -272,9 +271,9 @@ function App() {
       showNotification('Письмо для подтверждения отправлено!');
     } catch (error) {
       if (error.code === 'auth/email-already-in-use') {
-        setRegisterError(t('auth.emailInUse'));
+        setRegisterError('Email уже используется');
       } else {
-        setRegisterError(t('auth.registerError'));
+        setRegisterError('Ошибка регистрации');
       }
     }
   };
@@ -284,30 +283,28 @@ function App() {
     try {
       const provider = new GoogleAuthProvider();
       const res = await signInWithPopup(auth, provider);
-      await afterLogin(res.user.uid, res.user.email, res.user.displayName);
-      const tokenResult = await res.user.getIdTokenResult(true);
-      setIsAdminClaim(!!tokenResult?.claims?.admin);
+      await ensureUserDoc(res.user.uid, res.user.email, res.user.displayName);
       showNotification('Вход через Google выполнен');
     } catch {
       showNotification('Ошибка входа через Google', 'error');
     }
   };
 
-  // Magic link — запрещаем disposable-домены
+  // Magic link — запрещаем disposable-домены перед отправкой
   const handleSendMagicLink = async () => {
     if (!loginEmail) {
-      setLoginError(t('auth.enterEmail'));
+      setLoginError('Укажите email');
+      return;
+    }
+    if (isDisposableEmail(loginEmail)) {
+      setLoginError('Этот домен e-mail не поддерживается. Укажите реальную почту.');
       return;
     }
     try {
       await sendMagicLink(loginEmail);
       showNotification('Ссылка для входа отправлена на email');
-    } catch (e) {
-      if (e?.message === 'DISPOSABLE_EMAIL') {
-        setLoginError('Этот домен e-mail не поддерживается. Укажите реальную почту.');
-      } else {
-        showNotification('Не удалось отправить ссылку', 'error');
-      }
+    } catch {
+      showNotification('Не удалось отправить ссылку', 'error');
     }
   };
 
@@ -315,11 +312,9 @@ function App() {
     await signOut(auth);
     setLoginEmail('');
     setLoginPassword('');
-    setIsAdminClaim(false);
   };
 
-  // Повторная отправка верификационного письма:
-  // используем введённые на форме логина email+password
+  // Повторная отправка письма подтверждения
   const resendVerificationEmail = async () => {
     if (!loginEmail || !loginPassword) {
       setLoginError('Укажите e-mail и пароль, чтобы отправить письмо повторно.');
@@ -347,19 +342,41 @@ function App() {
     }
   };
 
-  // ======== CRUD каталога ========
-
+  // ====== Управление пользователями (админ) ======
   const handleToggleUserStatus = async (userId) => {
     try {
-      const userDocRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userDocRef);
-      const newStatus = userDoc.data().status === 'active' ? 'blocked' : 'active';
-      await updateDoc(userDocRef, { status: newStatus });
+      const ref = doc(db, 'users', userId);
+      const snap = await getDoc(ref);
+      const newStatus = snap.data().status === 'active' ? 'blocked' : 'active';
+      await updateDoc(ref, { status: newStatus });
       await loadUsers();
+      if (currentUser?.id === userId && newStatus === 'blocked') {
+        await signOut(auth);
+      }
       showNotification('Статус изменен');
     } catch (error) {
       console.error('Ошибка изменения статуса:', error);
       showNotification('Ошибка изменения статуса', 'error');
+    }
+  };
+
+  // Цикл ролей: user -> pro -> admin -> user
+  const handleChangeUserRole = async (userId) => {
+    try {
+      const ref = doc(db, 'users', userId);
+      const snap = await getDoc(ref);
+      const curr = (snap.data().role || 'user').toLowerCase();
+      const next = curr === 'user' ? 'pro' : curr === 'pro' ? 'admin' : 'user';
+      await updateDoc(ref, { role: next });
+
+      if (currentUser?.id === userId) {
+        setCurrentUser(prev => ({ ...prev, role: next }));
+      }
+      await loadUsers();
+      showNotification(`Роль изменена на ${next}`);
+    } catch (error) {
+      console.error('Ошибка изменения роли:', error);
+      showNotification('Ошибка изменения роли', 'error');
     }
   };
 
@@ -380,20 +397,7 @@ function App() {
     }
   };
 
-  const handleChangeUserRole = async (userId) => {
-    try {
-      const userDocRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userDocRef);
-      const newRole = userDoc.data().role === 'admin' ? 'user' : 'admin';
-      await updateDoc(userDocRef, { role: newRole });
-      await loadUsers();
-      showNotification('Роль изменена');
-    } catch (error) {
-      console.error('Ошибка изменения роли:', error);
-      showNotification('Ошибка изменения роли', 'error');
-    }
-  };
-
+  // ====== CRUD каталога ======
   const getCategoryGames = (category) => games.filter(g => g.category === category);
 
   const handleAddGame = async () => {
@@ -410,7 +414,7 @@ function App() {
           selectedCategory === 'courses' ? 'pdf' :
           selectedCategory === 'rutube'  ? 'rutube' :
           'link',
-        createdAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
       });
       await loadGames();
       setShowAddModal(false);
@@ -432,7 +436,7 @@ function App() {
       await updateDoc(doc(db, 'games', editingGame.id), {
         title: formData.title,
         description: formData.description,
-        url: formData.url,
+        url: formData.url
       });
       await loadGames();
       setEditingGame(null);
@@ -502,21 +506,12 @@ function App() {
     }
   };
 
-  // Доступы Free/PRO
+  // Доступы по ролям
   const canAccessCategory = (categoryId) => {
-    if (currentUser?.role === 'admin') return true;
-    if (userPlan === 'pro') return true;
-    return ['free', 'board', 'rutube'].includes(categoryId); // Free-доступ
+    const role = (currentUser?.role || 'user').toLowerCase();
+    if (role === 'admin' || role === 'pro') return true;
+    return ['free', 'board', 'rutube'].includes(categoryId); // user (free)
   };
-
-  const renderLockedOverlay = () => (
-    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
-      <div className="font-medium mb-2">Этот раздел доступен в PRO</div>
-      <a href="#upgrade" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
-        Оформить PRO
-      </a>
-    </div>
-  );
 
   if (loading) {
     return (
@@ -526,6 +521,7 @@ function App() {
     );
   }
 
+  // === LOGIN ===
   if (currentPage === 'login') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -543,19 +539,19 @@ function App() {
 
             {!isRegistering ? (
               <>
-                <h2 className="text-3xl font-bold text-gray-800 mb-2">{t('auth.hello')}</h2>
-                <p className="text-gray-600 mb-6">{t('auth.signInToAccount')}</p>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">Добро пожаловать</h2>
+                <p className="text-gray-600 mb-6">Войдите в свой аккаунт</p>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.email')}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.password')}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Пароль</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type={showPassword ? "text" : "password"} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="••••••••" />
@@ -569,16 +565,16 @@ function App() {
 
                   <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2">
                     <LogIn className="w-4 h-4" />
-                    {t('auth.login')}
+                    Войти
                   </button>
 
                   <div className="grid grid-cols-1 gap-3">
                     <button onClick={handleGoogleLogin} className="w-full border py-3 rounded-lg flex items-center justify-center gap-2">
                       <img alt="" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" />
-                      {t('auth.login')} через Google
+                      Войти через Google
                     </button>
                     <button onClick={handleSendMagicLink} className="w-full border py-3 rounded-lg">
-                      {t('auth.login')} по ссылке на email
+                      Войти по ссылке на email
                     </button>
                   </div>
 
@@ -609,22 +605,22 @@ function App() {
               </>
             ) : (
               <>
-                <h2 className="text-3xl font-bold text-gray-800 mb-2">{t('auth.signUp')}</h2>
-                <p className="text-gray-600 mb-6">{t('auth.createNew')}</p>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">Регистрация</h2>
+                <p className="text-gray-600 mb-6">Создайте новый аккаунт</p>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.name')}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Имя</label>
                     <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Иван Иванов" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.email')}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.password')}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Пароль</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type={showRegisterPassword ? "text" : "password"} value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRegister()} className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Минимум 6 символов" />
@@ -681,14 +677,19 @@ function App() {
     );
   }
 
-  // Категории по новому порядку
+  // === DASHBOARD ===
+
+  const [showUsersModal, setShowUsersModal] = useState(false);
+
   const categories = [
     { id: 'free',    title: 'Бесплатные игры', icon: Gamepad2,  bgColor: 'bg-green-500' },
     { id: 'board',   title: 'Настольные игры', icon: Package,   bgColor: 'bg-purple-500' },
     { id: 'rutube',  title: 'Видео (RuTube)',  icon: PlayCircle,bgColor: 'bg-emerald-500' },
     { id: 'online',  title: 'Онлайн игры',     icon: Gamepad2,  bgColor: 'bg-blue-500' },
-    { id: 'courses', title: 'Курсы (PDF)',     icon: BookOpen,  bgColor: 'bg-orange-500' },
+    { id: 'courses', title: 'Курсы (PDF)',     icon: BookOpen,  bgColor: 'bg-orange-500' }
   ].sort((a,b)=> CATEGORIES_ORDERED.indexOf(a.id) - CATEGORIES_ORDERED.indexOf(b.id));
+
+  const role = (currentUser?.role || 'user').toLowerCase();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -706,7 +707,7 @@ function App() {
           </div>
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
-            {currentUser?.role === 'admin' && (
+            {role === 'admin' && (
               <button onClick={() => setShowUsersModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg">
                 <Users className="w-4 h-4" />
                 Пользователи
@@ -750,7 +751,7 @@ function App() {
                           ? <PlayCircle className="w-8 h-8" />
                           : <Gamepad2 className="w-8 h-8" />
                         }
-                        {currentUser?.role === 'admin' && !game.isBuiltIn && (
+                        {role === 'admin' && !game.isBuiltIn && (
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100">
                             <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать"><Edit2 className="w-4 h-4" /></button>
                             <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title="Удалить"><Trash2 className="w-4 h-4" /></button>
@@ -781,7 +782,7 @@ function App() {
                     </div>
                   ))}
 
-                  {currentUser?.role === 'admin' && (
+                  {role === 'admin' && (
                     <button
                       onClick={() => openAddModal(category.id)}
                       className="border-2 border-dashed rounded-lg p-5 hover:border-blue-500 flex flex-col items-center justify-center min-h-[200px]"
@@ -792,10 +793,27 @@ function App() {
                   )}
                 </div>
 
+                {/* Доп. плашка для "Настольные игры": показать CTA "Заказать игры" */}
+                {category.id === 'board' && (
+                  <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-center justify-between flex-col sm:flex-row gap-3">
+                    <div className="font-medium">Хотите получить физические комплекты настольных игр?</div>
+                    <a
+                      href={MAILTO_BOARD}
+                      className="inline-block px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                    >
+                      Заказать игры
+                    </a>
+                  </div>
+                )}
+
+                {/* Для закрытых разделов — CTA "Оформить PRO" → письмо */}
                 {!canAccess && (
-                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
-                    <div className="font-medium mb-2">Этот раздел доступен в PRO</div>
-                    <a href="#upgrade" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
+                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 flex items-center justify-between flex-col sm:flex-row gap-3">
+                    <div className="font-medium">Этот раздел доступен в PRO</div>
+                    <a
+                      href={MAILTO_PRO}
+                      className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                    >
                       Оформить PRO
                     </a>
                   </div>
@@ -859,53 +877,61 @@ function App() {
         </div>
       )}
 
-      {showUsersModal && currentUser?.role === 'admin' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
-            <div className="p-6 border-b flex justify-between items-center">
-              <h3 className="text-xl font-bold">Управление пользователями</h3>
-              <button onClick={() => setShowUsersModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
+      {role === 'admin' && (
+        showUsersModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+              <div className="p-6 border-b flex justify-between items-center">
+                <h3 className="text-xl font-bold">Управление пользователями</h3>
+                <button onClick={() => setShowUsersModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
 
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              {users.map(user => (
-                <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg mb-4">
-                  <div>
-                    <p className="font-medium">{user.name}</p>
-                    <p className="text-sm text-gray-500">{user.email}</p>
+              <div className="p-6 overflow-y-auto max-h-[60vh]">
+                {users.map(user => (
+                  <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg mb-4">
+                    <div>
+                      <p className="font-medium">{user.name}</p>
+                      <p className="text-sm text-gray-500">{user.email}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={
+                        `px-2 py-1 rounded text-xs ${
+                          user.role === 'admin' ? 'bg-purple-100 text-purple-800'
+                        : user.role === 'pro'   ? 'bg-blue-100 text-blue-800'
+                        :                          'bg-gray-100 text-gray-800'
+                        }`
+                      }>
+                        {user.role}
+                      </span>
+                      <span className={`px-2 py-1 rounded text-xs ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                        {user.status}
+                      </span>
+                      {user.id !== currentUser?.id && (
+                        <>
+                          <button onClick={() => handleChangeUserRole(user.id)} className="p-2 text-purple-600" title="Цикл ролей user→pro→admin">
+                            <Shield className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleToggleUserStatus(user.id)} className="p-2 text-orange-600" title="Блок/Разблок">
+                            {user.status === 'active' ? <Ban className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                          </button>
+                          <button onClick={() => handleDeleteUser(user.id)} className="p-2 text-red-600" title="Удалить">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded text-xs ${user.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100'}`}>
-                      {user.role}
-                    </span>
-                    <span className={`px-2 py-1 rounded text-xs ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                      {user.status}
-                    </span>
-                    {user.id !== currentUser?.id && (
-                      <>
-                        <button onClick={() => handleChangeUserRole(user.id)} className="p-2 text-purple-600" title="Сменить роль">
-                          <Shield className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleToggleUserStatus(user.id)} className="p-2 text-orange-600" title="Блок/Разблок">
-                          {user.status === 'active' ? <Ban className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                        </button>
-                        <button onClick={() => handleDeleteUser(user.id)} className="p-2 text-red-600" title="Удалить">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="p-4 border-t">
-              <button onClick={() => setShowUsersModal(false)} className="w-full px-4 py-2 border rounded-lg">Закрыть</button>
+              <div className="p-4 border-t">
+                <button onClick={() => setShowUsersModal(false)} className="w-full px-4 py-2 border rounded-lg">Закрыть</button>
+              </div>
             </div>
           </div>
-        </div>
+        )
       )}
 
       {/* RuTube modal */}
@@ -919,3 +945,4 @@ function App() {
 }
 
 export default App;
+
