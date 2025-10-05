@@ -56,6 +56,16 @@ const INITIAL_GAMES = [
 // Порядок секций — добавили 'contacts' в самом конце
 const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses', 'contacts'];
 
+// Ключи заголовков секций для i18n
+const titleKeyMap = {
+  free: 'sections.free',
+  board: 'sections.board',
+  rutube: 'sections.rutube',
+  online: 'sections.online',
+  courses: 'sections.courses',
+  contacts: 'sections.contacts'
+};
+
 function App() {
   const { t } = useTranslation();
 
@@ -135,7 +145,7 @@ function App() {
             if (data.role === 'admin') await loadUsers();
           } else {
             await signOut(auth);
-            showNotification('Ваш аккаунт заблокирован', 'error');
+            showNotification(t('banners.blocked'), 'error');
           }
         } else {
           // профиль при первом входе
@@ -163,7 +173,7 @@ function App() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [t]);
 
   // ---------- Профиль-хелпер ----------
   const ensureUserDoc = async (uid, email, displayName) => {
@@ -218,27 +228,27 @@ function App() {
       const user = cred.user;
       if (!user.emailVerified) {
         await signOut(auth);
-        setVerifyNotice('Ваш e-mail не подтверждён. Проверьте почту или отправьте письмо ещё раз.');
+        setVerifyNotice(t('auth.verifyBanner'));
         return;
       }
       await ensureUserDoc(user.uid, user.email, user.displayName);
-      showNotification('Добро пожаловать!');
+      showNotification(t('auth.notices.welcome'));
     } catch {
-      setLoginError('Неверный email или пароль');
+      setLoginError(t('auth.errors.badCredentials'));
     }
   };
 
   const handleRegister = async () => {
     if (!registerName || !registerEmail || !registerPassword) {
-      setRegisterError('Заполните все поля');
+      setRegisterError(t('validations.fillAll'));
       return;
     }
     if (registerPassword.length < 6) {
-      setRegisterError('Пароль должен быть не менее 6 символов');
+      setRegisterError(t('auth.passwordHint'));
       return;
     }
     if (isDisposableEmail(registerEmail)) {
-      setRegisterError('Этот домен e-mail не поддерживается. Укажите реальную почту.');
+      setRegisterError(t('auth.errors.disposable'));
       return;
     }
     try {
@@ -261,13 +271,13 @@ function App() {
       setRegisterName('');
       setRegisterEmail('');
       setRegisterPassword('');
-      setVerifyNotice('Мы отправили письмо для подтверждения. Проверьте почту и перейдите по ссылке, затем войдите.');
-      showNotification('Письмо для подтверждения отправлено!');
+      setVerifyNotice(t('auth.notices.verifySent'));
+      showNotification(t('auth.notices.verifySent'));
     } catch (error) {
       if (error.code === 'auth/email-already-in-use') {
-        setRegisterError('Email уже используется');
+        setRegisterError(t('auth.errors.emailInUse'));
       } else {
-        setRegisterError('Ошибка регистрации');
+        setRegisterError(t('auth.errors.register'));
       }
     }
   };
@@ -277,26 +287,26 @@ function App() {
       const provider = new GoogleAuthProvider();
       const res = await signInWithPopup(auth, provider);
       await ensureUserDoc(res.user.uid, res.user.email, res.user.displayName);
-      showNotification('Вход через Google выполнен');
+      showNotification(t('auth.notices.googleOk'));
     } catch {
-      showNotification('Ошибка входа через Google', 'error');
+      showNotification(t('auth.notices.googleErr'), 'error');
     }
   };
 
   const handleSendMagicLink = async () => {
     if (!loginEmail) {
-      setLoginError('Укажите email');
+      setLoginError(t('auth.errors.needEmail'));
       return;
     }
     if (isDisposableEmail(loginEmail)) {
-      setLoginError('Этот домен e-mail не поддерживается. Укажите реальную почту.');
+      setLoginError(t('auth.errors.disposable'));
       return;
     }
     try {
       await sendMagicLink(loginEmail);
-      showNotification('Ссылка для входа отправлена на email');
+      showNotification(t('auth.notices.linkSent'));
     } catch {
-      showNotification('Не удалось отправить ссылку', 'error');
+      showNotification(t('auth.notices.linkErr'), 'error');
     }
   };
 
@@ -308,7 +318,7 @@ function App() {
 
   const resendVerificationEmail = async () => {
     if (!loginEmail || !loginPassword) {
-      setLoginError('Укажите e-mail и пароль, чтобы отправить письмо повторно.');
+      setLoginError(t('auth.errors.needEmail'));
       return;
     }
     try {
@@ -317,17 +327,17 @@ function App() {
       const user = cred.user;
 
       if (user.emailVerified) {
-        showNotification('E-mail уже подтверждён. Войдите в аккаунт.');
+        showNotification(t('auth.notices.welcome'));
         await signOut(auth);
         return;
       }
 
       await sendEmailVerification(user);
       await signOut(auth);
-      showNotification('Письмо отправлено повторно. Проверьте почту.');
-      setVerifyNotice('Мы снова отправили письмо. Проверьте почту.');
+      showNotification(t('auth.notices.verifyResent'));
+      setVerifyNotice(t('auth.notices.verifyResent'));
     } catch {
-      setLoginError('Не удалось отправить письмо. Проверьте e-mail и пароль.');
+      setLoginError(t('auth.errors.badCredentials'));
     } finally {
       setResendBusy(false);
     }
@@ -344,10 +354,10 @@ function App() {
       if (currentUser?.id === userId && newStatus === 'blocked') {
         await signOut(auth);
       }
-      showNotification('Статус изменен');
+      showNotification(t('admin.notices.statusChanged'));
     } catch (error) {
       console.error('Ошибка изменения статуса:', error);
-      showNotification('Ошибка изменения статуса', 'error');
+      showNotification(t('admin.notices.statusErr'), 'error');
     }
   };
 
@@ -364,26 +374,26 @@ function App() {
         setCurrentUser(prev => ({ ...prev, role: next }));
       }
       await loadUsers();
-      showNotification(`Роль изменена на ${next}`);
+      showNotification(t('admin.notices.roleChanged', { role: next }));
     } catch (error) {
       console.error('Ошибка изменения роли:', error);
-      showNotification('Ошибка изменения роли', 'error');
+      showNotification(t('admin.notices.roleErr'), 'error');
     }
   };
 
   const handleDeleteUser = async (userId) => {
     if (userId === currentUser?.id) {
-      showNotification('Нельзя удалить себя', 'error');
+      showNotification(t('admin.notices.cantDeleteSelf'), 'error');
       return;
     }
     if (window.confirm('Удалить пользователя?')) {
       try {
         await deleteDoc(doc(db, 'users', userId));
         await loadUsers();
-        showNotification('Пользователь удален');
+        showNotification(t('admin.notices.userDeleted'));
       } catch (error) {
         console.error('Ошибка удаления пользователя:', error);
-        showNotification('Ошибка удаления пользователя', 'error');
+        showNotification(t('admin.notices.userDeleteErr'), 'error');
       }
     }
   };
@@ -393,7 +403,7 @@ function App() {
 
   const handleAddGame = async () => {
     if (!formData.title || !formData.description || !formData.url) {
-      showNotification('Заполните все поля', 'error');
+      showNotification(t('validations.fillAll'), 'error');
       return;
     }
     try {
@@ -411,16 +421,16 @@ function App() {
       setShowAddModal(false);
       setFormData({ title: '', description: '', url: '' });
       setSelectedCategory(null);
-      showNotification('Элемент добавлен');
+      showNotification(t('modals.addTitle'));
     } catch (error) {
       console.error('Ошибка добавления элемента:', error);
-      showNotification('Ошибка добавления', 'error');
+      showNotification('Error', 'error');
     }
   };
 
   const handleEditGame = async () => {
     if (!formData.title || !formData.description || !formData.url) {
-      showNotification('Заполните все поля', 'error');
+      showNotification(t('validations.fillAll'), 'error');
       return;
     }
     try {
@@ -432,10 +442,10 @@ function App() {
       await loadGames();
       setEditingGame(null);
       setFormData({ title: '', description: '', url: '' });
-      showNotification('Элемент обновлён');
+      showNotification(t('modals.editTitle'));
     } catch (error) {
       console.error('Ошибка редактирования элемента:', error);
-      showNotification('Ошибка редактирования', 'error');
+      showNotification('Error', 'error');
     }
   };
 
@@ -444,10 +454,10 @@ function App() {
       try {
         await deleteDoc(doc(db, 'games', gameId));
         await loadGames();
-        showNotification('Элемент удалён');
+        showNotification(t('cards.delete'));
       } catch (error) {
         console.error('Ошибка удаления элемента:', error);
-        showNotification('Ошибка удаления', 'error');
+        showNotification('Error', 'error');
       }
     }
   };
@@ -487,13 +497,13 @@ function App() {
     setResetSent(false);
     try {
       if (!resetEmail) {
-        setResetError('Укажите email');
+        setResetError(t('auth.errors.needEmail'));
         return;
       }
       await sendPasswordResetEmail(auth, resetEmail);
       setResetSent(true);
     } catch {
-      setResetError('Не удалось отправить письмо. Проверьте email.');
+      setResetError(t('reset.error'));
     }
   };
 
@@ -526,24 +536,24 @@ function App() {
           <div className="p-8 md:p-12">
             <div className="flex items-center gap-2 mb-8">
               <Truck className="w-8 h-8 text-blue-600" />
-              <h1 className="text-2xl font-bold text-gray-800">Logistoria</h1>
+              <h1 className="text-2xl font-bold text-gray-800">{t('app.brand')}</h1>
             </div>
 
             {!isRegistering ? (
               <>
-                <h2 className="text-3xl font-bold text-gray-800 mb-2">Добро пожаловать</h2>
-                <p className="text-gray-600 mb-6">Войдите в свой аккаунт</p>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">{t('app.welcome')}</h2>
+                <p className="text-gray-600 mb-6">{t('auth.signInToAccount')}</p>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.email')}</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Пароль</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.password')}</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type={showPassword ? "text" : "password"} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="••••••••" />
@@ -557,26 +567,26 @@ function App() {
 
                   <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2">
                     <LogIn className="w-4 h-4" />
-                    Войти
+                    {t('auth.signIn')}
                   </button>
 
                   <div className="grid grid-cols-1 gap-3">
                     <button onClick={handleGoogleLogin} className="w-full border py-3 rounded-lg flex items-center justify-center gap-2">
                       <img alt="" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" />
-                      Войти через Google
+                      {t('auth.google')}
                     </button>
                     <button onClick={handleSendMagicLink} className="w-full border py-3 rounded-lg">
-                      Войти по ссылке на email
+                      {t('auth.magicLink')}
                     </button>
                   </div>
 
                   <div className="flex items-center justify-between text-sm">
                     <button onClick={openReset} className="text-blue-600 hover:text-blue-700 flex items-center gap-1">
                       <KeyRound className="w-4 h-4" />
-                      Забыли пароль?
+                      {t('auth.forgot')}
                     </button>
                     <button onClick={() => { setIsRegistering(true); setLoginError(''); }} className="text-blue-600 hover:text-blue-700">
-                      Регистрация
+                      {t('auth.register')}
                     </button>
                   </div>
 
@@ -589,7 +599,7 @@ function App() {
                         className="px-3 py-2 bg-yellow-600 text-white rounded-lg disabled:opacity-60"
                         disabled={resendBusy}
                       >
-                        {resendBusy ? 'Отправляем…' : 'Отправить письмо ещё раз'}
+                        {resendBusy ? '...' : t('auth.resend')}
                       </button>
                     </div>
                   )}
@@ -597,35 +607,35 @@ function App() {
               </>
             ) : (
               <>
-                <h2 className="text-3xl font-bold text-gray-800 mb-2">Регистрация</h2>
-                <p className="text-gray-600 mb-6">Создайте новый аккаунт</p>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">{t('auth.register')}</h2>
+                <p className="text-gray-600 mb-6">{t('auth.createAccount')}</p>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Имя</label>
-                    <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Иван Иванов" />
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.name')}</label>
+                    <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Ivan Ivanov" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.email')}</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="you@email.com" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Пароль</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t('auth.password')}</label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input type={showRegisterPassword ? "text" : "password"} value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRegister()} className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Минимум 6 символов" />
+                      <input type={showRegisterPassword ? "text" : "password"} value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRegister()} className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder={t('auth.passwordHint')} />
                       <button onClick={() => setShowRegisterPassword(!showRegisterPassword)} className="absolute right-3 top-1/2 -translate-y-1/2">
                         {showRegisterPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
                     </div>
                   </div>
                   {registerError && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm">{registerError}</div>}
-                  <button onClick={handleRegister} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg">Зарегистрироваться</button>
+                  <button onClick={handleRegister} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg">{t('auth.register')}</button>
                   <div className="text-center">
                     <button onClick={() => { setIsRegistering(false); setRegisterError(''); }} className="text-blue-600 hover:text-blue-700 font-medium text-sm">
-                      Уже есть аккаунт? Войти
+                      {t('auth.haveAccount')}
                     </button>
                   </div>
                 </div>
@@ -635,8 +645,8 @@ function App() {
 
           <div className="hidden md:flex bg-gradient-to-br from-blue-600 to-indigo-700 p-12 flex-col justify-center items-center text-white">
             <Truck className="w-32 h-32 mb-8 opacity-90" />
-            <h3 className="text-2xl font-bold mb-4 text-center">Учитесь логистике через игры</h3>
-            <p className="text-blue-100 text-center">Интерактивные симуляции и курсы</p>
+            <h3 className="text-2xl font-bold mb-4 text-center">{t('app.brand')}</h3>
+            <p className="text-blue-100 text-center">{t('app.subtitle')}</p>
           </div>
         </div>
 
@@ -645,10 +655,10 @@ function App() {
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-xl shadow-xl p-6">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold flex items-center gap-2"><KeyRound className="w-5 h-5" /> Восстановление пароля</h3>
+                <h3 className="text-lg font-semibold flex items-center gap-2"><KeyRound className="w-5 h-5" /> {t('reset.title')}</h3>
                 <button onClick={() => setResetOpen(false)} className="text-gray-500 hover:text-gray-700"><X className="w-5 h-5" /></button>
               </div>
-              <p className="text-sm text-gray-600 mb-4">Мы отправим письмо со ссылкой для сброса пароля.</p>
+              <p className="text-sm text-gray-600 mb-4">{t('reset.desc')}</p>
               <input
                 type="email"
                 className="w-full border rounded-lg px-3 py-2 mb-3"
@@ -657,10 +667,10 @@ function App() {
                 onChange={(e) => setResetEmail(e.target.value)}
               />
               {resetError && <div className="text-sm text-red-600 mb-2">{resetError}</div>}
-              {resetSent && <div className="text-sm text-green-600 mb-2">Письмо отправлено! Проверьте почту.</div>}
+              {resetSent && <div className="text-sm text-green-600 mb-2">{t('reset.sent')}</div>}
               <div className="flex items-center justify-end gap-2">
-                <button onClick={() => setResetOpen(false)} className="px-4 py-2 border rounded-lg">Отмена</button>
-                <button onClick={doReset} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Отправить</button>
+                <button onClick={() => setResetOpen(false)} className="px-4 py-2 border rounded-lg">{t('reset.cancel')}</button>
+                <button onClick={doReset} className="px-4 py-2 bg-blue-600 text-white rounded-lg">{t('reset.send')}</button>
               </div>
             </div>
           </div>
@@ -672,13 +682,13 @@ function App() {
   // ---------- DASHBOARD ----------
 
   const categories = [
-    { id: 'free',     title: 'Бесплатные игры',   icon: Gamepad2,   bgColor: 'bg-green-500' },
-    { id: 'board',    title: 'Настольные игры',   icon: Package,    bgColor: 'bg-purple-500' },
-    { id: 'rutube',   title: 'Видео (RuTube)',    icon: PlayCircle, bgColor: 'bg-emerald-500' },
-    { id: 'online',   title: 'Онлайн игры',       icon: Gamepad2,   bgColor: 'bg-blue-500' },
-    { id: 'courses',  title: 'Курсы (PDF)',       icon: BookOpen,   bgColor: 'bg-orange-500' },
+    { id: 'free',     icon: Gamepad2,   bgColor: 'bg-green-500' },
+    { id: 'board',    icon: Package,    bgColor: 'bg-purple-500' },
+    { id: 'rutube',   icon: PlayCircle, bgColor: 'bg-emerald-500' },
+    { id: 'online',   icon: Gamepad2,   bgColor: 'bg-blue-500' },
+    { id: 'courses',  icon: BookOpen,   bgColor: 'bg-orange-500' },
     // новый раздел — всегда доступен, внизу
-    { id: 'contacts', title: 'Новости и Контакты', icon: Mail,       bgColor: 'bg-teal-500' }
+    { id: 'contacts', icon: Mail,       bgColor: 'bg-teal-500' }
   ].sort((a,b)=> CATEGORIES_ORDERED.indexOf(a.id) - CATEGORIES_ORDERED.indexOf(b.id));
 
   const role = (currentUser?.role || 'user').toLowerCase();
@@ -695,28 +705,28 @@ function App() {
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Truck className="w-8 h-8 text-blue-600" />
-            <h1 className="text-xl font-bold">Logistoria</h1>
+            <h1 className="text-xl font-bold">{t('app.brand')}</h1>
           </div>
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
             {role === 'admin' && (
               <button onClick={() => setShowUsersModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg">
                 <Users className="w-4 h-4" />
-                Пользователи
+                {t('header.users')}
               </button>
             )}
             <span className="text-gray-600">{currentUser?.name}</span>
             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800">
               <LogOut className="w-4 h-4" />
-              Выход
+              {t('header.logout')}
             </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        <h2 className="text-3xl font-bold mb-2">Добро пожаловать, {currentUser?.name}!</h2>
-        <p className="text-gray-600 mb-8">Выберите игру или курс</p>
+        <h2 className="text-3xl font-bold mb-2">{t('app.welcomeUser', { name: currentUser?.name || '' })}</h2>
+        <p className="text-gray-600 mb-8">{t('app.pickItem')}</p>
 
         <div className="space-y-12">
           {categories.map(category => {
@@ -730,35 +740,35 @@ function App() {
                   <div className={`${category.bgColor} p-3 rounded-lg`}>
                     <Icon className="w-6 h-6 text-white" />
                   </div>
-                  <h3 className="text-2xl font-bold">{category.title}</h3>
+                  <h3 className="text-2xl font-bold">{t(titleKeyMap[category.id])}</h3>
                 </div>
 
                 {category.id === 'contacts' ? (
                   <div className="grid sm:grid-cols-2 gap-4">
                     <a
-                      href="https://t.me/supplychains"      // <= подставь свой URL Telegram-канала
+                      href="https://t.me/ВАШ_ТГ_КАНАЛ"      // <= подставь свой URL Telegram-канала
                       target="_blank"
                       rel="noopener noreferrer"
                       className="border rounded-lg p-5 hover:shadow-lg transition flex items-center justify-between"
                     >
                       <div>
-                        <div className="font-semibold mb-1">Подписаться в Telegram</div>
-                        <div className="text-sm text-gray-600">Будьте в курсе новостей и обновлений</div>
+                        <div className="font-semibold mb-1">{t('contacts.tgTitle')}</div>
+                        <div className="text-sm text-gray-600">{t('contacts.tgDesc')}</div>
                       </div>
-                      <span className="px-4 py-2 bg-blue-600 text-white rounded-lg">Открыть</span>
+                      <span className="px-4 py-2 bg-blue-600 text-white rounded-lg">{t('contacts.tgOpen')}</span>
                     </a>
 
                     <a
-                      href="https://wa.me/message/HGCBTCREGJG3L1" // <= подставь свой URL WhatsApp-чата
+                      href="https://wa.me/ВАШ_НОМЕР_ИЛИ_ЛИНК" // <= подставь свой URL WhatsApp-чата
                       target="_blank"
                       rel="noopener noreferrer"
                       className="border rounded-lg p-5 hover:shadow-lg transition flex items-center justify-between"
                     >
                       <div>
-                        <div className="font-semibold mb-1">Написать в WhatsApp</div>
-                        <div className="text-sm text-gray-600">Связаться с продавцами и задать вопросы</div>
+                        <div className="font-semibold mb-1">{t('contacts.waTitle')}</div>
+                        <div className="text-sm text-gray-600">{t('contacts.waDesc')}</div>
                       </div>
-                      <span className="px-4 py-2 bg-green-600 text-white rounded-lg">Открыть</span>
+                      <span className="px-4 py-2 bg-green-600 text-white rounded-lg">{t('contacts.waOpen')}</span>
                     </a>
                   </div>
                 ) : (
@@ -775,8 +785,8 @@ function App() {
                             }
                             {role === 'admin' && !game.isBuiltIn && (
                               <div className="flex gap-2 opacity-0 group-hover:opacity-100">
-                                <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать"><Edit2 className="w-4 h-4" /></button>
-                                <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title="Удалить"><Trash2 className="w-4 h-4" /></button>
+                                <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title={t('cards.edit')}><Edit2 className="w-4 h-4" /></button>
+                                <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title={t('cards.delete')}><Trash2 className="w-4 h-4" /></button>
                               </div>
                             )}
                           </div>
@@ -789,7 +799,7 @@ function App() {
                               onClick={() => openRutube(game.url)}
                               className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
                             >
-                              Смотреть на месте
+                              {t('cards.watchInline')}
                             </button>
                           ) : (
                             <a
@@ -798,7 +808,7 @@ function App() {
                               rel="noopener noreferrer"
                               className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
                             >
-                              {game.type === 'pdf' ? 'Скачать PDF' : 'Открыть'}
+                              {game.type === 'pdf' ? t('cards.downloadPdf') : t('cards.open')}
                             </a>
                           )}
                         </div>
@@ -810,7 +820,7 @@ function App() {
                           className="border-2 border-dashed rounded-lg p-5 hover:border-blue-500 flex flex-col items-center justify-center min-h-[200px]"
                         >
                           <Plus className="w-12 h-12 text-gray-400 mb-2" />
-                          <p className="text-gray-600">Добавить</p>
+                          <p className="text-gray-600">{t('cards.add')}</p>
                         </button>
                       )}
                     </div>
@@ -818,12 +828,12 @@ function App() {
                     {/* CTA "Заказать игры" для раздела Настольные игры */}
                     {category.id === 'board' && (
                       <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-center justify-between flex-col sm:flex-row gap-3">
-                        <div className="font-medium">Хотите получить физические комплекты настольных игр?</div>
+                        <div className="font-medium">{t('boardCta.text')}</div>
                         <a
                           href={MAILTO_BOARD}
                           className="inline-block px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
                         >
-                          Заказать игры
+                          {t('boardCta.button')}
                         </a>
                       </div>
                     )}
@@ -831,12 +841,12 @@ function App() {
                     {/* Закрытые разделы → CTA "Оформить PRO" */}
                     {!canAccess && (
                       <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 flex items-center justify-between flex-col sm:flex-row gap-3">
-                        <div className="font-medium">Этот раздел доступен в PRO</div>
+                        <div className="font-medium">{t('proCta.text')}</div>
                         <a
                           href={MAILTO_PRO}
                           className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
                         >
-                          Оформить PRO
+                          {t('proCta.button')}
                         </a>
                       </div>
                     )}
@@ -851,16 +861,16 @@ function App() {
       {(showAddModal || editingGame) && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-xl font-bold mb-4">{editingGame ? 'Редактировать' : 'Добавить элемент'}</h3>
+            <h3 className="text-xl font-bold mb-4">{editingGame ? t('modals.editTitle') : t('modals.addTitle')}</h3>
 
             {!editingGame && selectedCategory === 'rutube' && (
               <div className="mb-3 text-sm text-gray-600">
-                Вставьте ссылку на RuTube: https://rutube.ru/video/...
+                {t('modals.hints.rutube')}
               </div>
             )}
             {!editingGame && selectedCategory === 'courses' && (
               <div className="mb-3 text-sm text-gray-600">
-                Путь к PDF. Пример: /downloads/professional-course.pdf
+                {t('modals.hints.courses')}
               </div>
             )}
 
@@ -870,31 +880,31 @@ function App() {
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg"
-                placeholder="Название"
+                placeholder={t('modals.name')}
               />
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg"
                 rows="3"
-                placeholder="Описание"
+                placeholder={t('modals.desc')}
               />
               <input
                 type="url"
                 value={formData.url}
                 onChange={(e) => setFormData({ ...formData, url: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg"
-                placeholder="https://..."
+                placeholder={t('modals.url')}
               />
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button onClick={closeModals} className="flex-1 px-4 py-2 border rounded-lg">Отмена</button>
+              <button onClick={closeModals} className="flex-1 px-4 py-2 border rounded-lg">{t('modals.cancel')}</button>
               <button
                 onClick={editingGame ? handleEditGame : handleAddGame}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg"
               >
-                {editingGame ? 'Сохранить' : 'Добавить'}
+                {editingGame ? t('modals.save') : t('cards.add')}
               </button>
             </div>
           </div>
@@ -906,7 +916,7 @@ function App() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
               <div className="p-6 border-b flex justify-between items-center">
-                <h3 className="text-xl font-bold">Управление пользователями</h3>
+                <h3 className="text-xl font-bold">{t('admin.title')}</h3>
                 <button onClick={() => setShowUsersModal(false)} className="text-gray-400 hover:text-gray-600">
                   <X className="w-6 h-6" />
                 </button>
@@ -930,17 +940,17 @@ function App() {
                         {user.role}
                       </span>
                       <span className={`px-2 py-1 rounded text-xs ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {user.status}
+                        {user.status === 'active' ? t('admin.active') : t('admin.blocked')}
                       </span>
                       {user.id !== currentUser?.id && (
                         <>
-                          <button onClick={() => handleChangeUserRole(user.id)} className="p-2 text-purple-600" title="Цикл ролей user→pro→admin">
+                          <button onClick={() => handleChangeUserRole(user.id)} className="p-2 text-purple-600" title={t('admin.cycleRoleTip')}>
                             <Shield className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleToggleUserStatus(user.id)} className="p-2 text-orange-600" title="Блок/Разблок">
+                          <button onClick={() => handleToggleUserStatus(user.id)} className="p-2 text-orange-600" title={t('admin.blockTip')}>
                             {user.status === 'active' ? <Ban className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
                           </button>
-                          <button onClick={() => handleDeleteUser(user.id)} className="p-2 text-red-600" title="Удалить">
+                          <button onClick={() => handleDeleteUser(user.id)} className="p-2 text-red-600" title={t('admin.deleteTip')}>
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </>
@@ -951,7 +961,7 @@ function App() {
               </div>
 
               <div className="p-4 border-t">
-                <button onClick={() => setShowUsersModal(false)} className="w-full px-4 py-2 border rounded-lg">Закрыть</button>
+                <button onClick={() => setShowUsersModal(false)} className="w-full px-4 py-2 border rounded-lg">{t('admin.close')}</button>
               </div>
             </div>
           </div>
