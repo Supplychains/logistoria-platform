@@ -23,27 +23,7 @@ import { sendMagicLink, completeMagicLinkSignIn } from './passwordless';
 import { isDisposableEmail } from './emailUtils';
 import RuTubeModal from './RuTubeModal';
 
-// Встроенный каталог (добавится к Firestore)
-const INITIAL_GAMES = [
-  // Free
-  { id: 'free-1', title: 'Waremover', description: 'Управляйте складом и оптимизируйте размещение товаров', url: 'https://supplychains.github.io/waremover/', category: 'free', isBuiltIn: true, type: 'link' },
-  { id: 'free-2', title: 'Shipster', description: 'Симулятор управления доставками и маршрутизацией', url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
-  // Board (Free access)
-  { id: 'board-1', title: 'Krossdok', description: 'Настольная игра по управлению кросс-докингом', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
-  { id: 'board-2', title: 'The Beer Game', description: 'Физическая версия классической логистической игры', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
-  // Rutube (Free access) — наполняется через админку
-  // Online (PRO)
-  { id: 'online-1', title: 'Supply Chain Game', description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
-  { id: 'online-2', title: 'Beer Game', description: 'Классическая игра для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
-  // Courses (PRO)
-  { id: 'course-1', title: 'Курс для профессионалов', description: 'Продвинутое обучение управлению цепями поставок', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
-  { id: 'course-2', title: 'Курс для школьников и студентов', description: 'Введение в логистику для начинающих', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
-];
-
-// Порядок секций
-const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses'];
-
-// mailto для PRO и Заказа настольных игр
+// ---------- Константы почтовых CTA ----------
 const MAIL_TO = 'project@logistoria.com';
 const MAILTO_PRO = `mailto:${MAIL_TO}?subject=${encodeURIComponent('Logistoria PRO — заявка')}&body=${encodeURIComponent(
   'Здравствуйте! Хотим подключить PRO-доступ к Logistoria.\n\nКомпания/ФИО:\nКонтакты:\nКоличество пользователей:\nКомментарии:\n'
@@ -52,31 +32,50 @@ const MAILTO_BOARD = `mailto:${MAIL_TO}?subject=${encodeURIComponent('Заказ
   'Здравствуйте! Хотим заказать настольные игры Logistoria.\n\nКомпания/ФИО:\nКонтакты:\nКакие игры интересуют:\nКоличество комплектов:\nКомментарии:\n'
 )}`;
 
+// ---------- Встроённые элементы каталога ----------
+const INITIAL_GAMES = [
+  // Free
+  { id: 'free-1', title: 'Waremover', description: 'Управляйте складом и оптимизируйте размещение товаров', url: 'https://supplychains.github.io/waremover/', category: 'free', isBuiltIn: true, type: 'link' },
+  { id: 'free-2', title: 'Shipster', description: 'Симулятор управления доставками и маршрутизацией', url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
+
+  // Board (Free access)
+  { id: 'board-1', title: 'Krossdok', description: 'Настольная игра по управлению кросс-докингом', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
+  { id: 'board-2', title: 'The Beer Game', description: 'Физическая версия классической логистической игры', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
+
+  // Rutube (Free access) — наполняется через админку
+
+  // Online (PRO)
+  { id: 'online-1', title: 'Supply Chain Game', description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
+  { id: 'online-2', title: 'Beer Game', description: 'Классическая игра для понимания эффекта хлыста', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
+
+  // Courses (PRO)
+  { id: 'course-1', title: 'Курс для профессионалов', description: 'Продвинутое обучение управлению цепями поставок', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
+  { id: 'course-2', title: 'Курс для школьников и студентов', description: 'Введение в логистику для начинающих', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
+];
+
+// Порядок секций
+const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses'];
+
 function App() {
   const { t } = useTranslation();
 
-  // Навигация
+  // ---------- Навигация/состояния ----------
   const [currentPage, setCurrentPage] = useState('login');
 
-  // Пользователь
   const [currentUser, setCurrentUser] = useState(null); // {id, email, name, role: 'user'|'pro'|'admin'}
   const [users, setUsers] = useState([]);
 
-  // Контент
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Модалки/формы
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [editingGame, setEditingGame] = useState(null);
 
-  // Логин/регистрация
   const [showPassword, setShowPassword] = useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
 
-  // Уведомления/ошибки
   const [notification, setNotification] = useState(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -87,24 +86,22 @@ function App() {
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerError, setRegisterError] = useState('');
 
-  // Форма добавления/редактирования каталога
   const [formData, setFormData] = useState({ title: '', description: '', url: '' });
 
-  // RuTube modal
   const [ruModalOpen, setRuModalOpen] = useState(false);
   const [ruModalUrl, setRuModalUrl] = useState('');
 
-  // Reset Password modal
   const [resetOpen, setResetOpen] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetSent, setResetSent] = useState(false);
 
-  // Email verification notice
   const [verifyNotice, setVerifyNotice] = useState('');
   const [resendBusy, setResendBusy] = useState(false);
 
-  // Завершение passwordless при открытии (если пришли по magic-link)
+  const [showUsersModal, setShowUsersModal] = useState(false);
+
+  // ---------- Завершение passwordless при входе по ссылке ----------
   useEffect(() => {
     completeMagicLinkSignIn()
       .then(async (user) => {
@@ -117,7 +114,7 @@ function App() {
       .catch(() => {});
   }, []);
 
-  // Следим за auth
+  // ---------- Следим за auth ----------
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -141,7 +138,7 @@ function App() {
             showNotification('Ваш аккаунт заблокирован', 'error');
           }
         } else {
-          // Создаём профиль при первом входе любого типа
+          // создаём профиль при первом входе любого типа
           const payload = {
             email: firebaseUser.email,
             name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
@@ -168,7 +165,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Хелпер — убедиться что профиль есть
+  // ---------- Хелпер профиля ----------
   const ensureUserDoc = async (uid, email, displayName) => {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
@@ -187,7 +184,7 @@ function App() {
     }
   };
 
-  // ====== Каталог ======
+  // ---------- Каталог ----------
   const loadGames = async () => {
     try {
       const gamesSnapshot = await getDocs(collection(db, 'games'));
@@ -212,9 +209,7 @@ function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // ====== Аутентификация ======
-
-  // ЛОГИН по паролю: блокируем вход, если email не подтверждён
+  // ---------- Аутентификация ----------
   const handleLogin = async () => {
     try {
       setLoginError('');
@@ -233,7 +228,6 @@ function App() {
     }
   };
 
-  // РЕГИСТРАЦИЯ: запрещаем disposable-домены, отправляем verify email и выходим
   const handleRegister = async () => {
     if (!registerName || !registerEmail || !registerPassword) {
       setRegisterError('Заполните все поля');
@@ -278,7 +272,6 @@ function App() {
     }
   };
 
-  // Google
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -290,7 +283,6 @@ function App() {
     }
   };
 
-  // Magic link — запрещаем disposable-домены перед отправкой
   const handleSendMagicLink = async () => {
     if (!loginEmail) {
       setLoginError('Укажите email');
@@ -314,7 +306,6 @@ function App() {
     setLoginPassword('');
   };
 
-  // Повторная отправка письма подтверждения
   const resendVerificationEmail = async () => {
     if (!loginEmail || !loginPassword) {
       setLoginError('Укажите e-mail и пароль, чтобы отправить письмо повторно.');
@@ -342,7 +333,7 @@ function App() {
     }
   };
 
-  // ====== Управление пользователями (админ) ======
+  // ---------- Управление пользователями (админ) ----------
   const handleToggleUserStatus = async (userId) => {
     try {
       const ref = doc(db, 'users', userId);
@@ -397,7 +388,7 @@ function App() {
     }
   };
 
-  // ====== CRUD каталога ======
+  // ---------- CRUD каталога ----------
   const getCategoryGames = (category) => games.filter(g => g.category === category);
 
   const handleAddGame = async () => {
@@ -506,7 +497,7 @@ function App() {
     }
   };
 
-  // Доступы по ролям
+  // ---------- Доступы по ролям ----------
   const canAccessCategory = (categoryId) => {
     const role = (currentUser?.role || 'user').toLowerCase();
     if (role === 'admin' || role === 'pro') return true;
@@ -521,7 +512,7 @@ function App() {
     );
   }
 
-  // === LOGIN ===
+  // ---------- LOGIN ----------
   if (currentPage === 'login') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -677,9 +668,7 @@ function App() {
     );
   }
 
-  // === DASHBOARD ===
-
-  const [showUsersModal, setShowUsersModal] = useState(false);
+  // ---------- DASHBOARD ----------
 
   const categories = [
     { id: 'free',    title: 'Бесплатные игры', icon: Gamepad2,  bgColor: 'bg-green-500' },
@@ -793,7 +782,7 @@ function App() {
                   )}
                 </div>
 
-                {/* Доп. плашка для "Настольные игры": показать CTA "Заказать игры" */}
+                {/* Доп. плашка для "Настольные игры": CTA "Заказать игры" */}
                 {category.id === 'board' && (
                   <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-center justify-between flex-col sm:flex-row gap-3">
                     <div className="font-medium">Хотите получить физические комплекты настольных игр?</div>
@@ -806,7 +795,7 @@ function App() {
                   </div>
                 )}
 
-                {/* Для закрытых разделов — CTA "Оформить PRO" → письмо */}
+                {/* Для закрытых разделов — CTA "Оформить PRO" (mailto) */}
                 {!canAccess && (
                   <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 flex items-center justify-between flex-col sm:flex-row gap-3">
                     <div className="font-medium">Этот раздел доступен в PRO</div>
