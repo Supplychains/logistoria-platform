@@ -5,10 +5,6 @@ import {
   Mail, Lock, Eye, EyeOff, Users, Shield, Ban, CheckCircle, X, PlayCircle, KeyRound, LogIn
 } from 'lucide-react';
 
-import './i18n';
-import { useTranslation } from 'react-i18next';
-import LanguageSwitcher from './LanguageSwitcher';
-
 import { auth, db } from './firebase';
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -23,7 +19,7 @@ import { sendMagicLink, completeMagicLinkSignIn } from './passwordless';
 import { isDisposableEmail } from './emailUtils';
 import RuTubeModal from './RuTubeModal';
 
-// ---------- Почтовые CTA ----------
+// ---- Почтовые CTA ----
 const MAIL_TO = 'project@logistoria.com';
 const MAILTO_PRO = `mailto:${MAIL_TO}?subject=${encodeURIComponent('Logistoria PRO — заявка')}&body=${encodeURIComponent(
   'Здравствуйте! Хотим подключить PRO-доступ к Logistoria.\n\nКомпания/ФИО:\nКонтакты:\nКоличество пользователей:\nКомментарии:\n'
@@ -32,37 +28,44 @@ const MAILTO_BOARD = `mailto:${MAIL_TO}?subject=${encodeURIComponent('Заказ
   'Здравствуйте! Хотим заказать настольные игры Logistoria.\n\nКомпания/ФИО:\nКонтакты:\nКакие игры интересуют:\nКоличество комплектов:\nКомментарии:\n'
 )}`;
 
-// ---------- Встроённые элементы каталога ----------
+// ---- Прейскурант (масштабируемый) ----
+const PLANS = [
+  { id: 'kadena',       title: '🎮 Kadena',                    price: '4000 ₽',     period: 'единовременно', description: 'Доступ только к игре Kadena' },
+  { id: 'thebeergame',  title: '🍺 The Beer Game Online',      price: '9000 ₽',     period: 'единовременно', description: 'Доступ только к игре The Beer Game Online' },
+  { id: 'coursespros',  title: '💼 Курс для профессионалов',   price: '1000 ₽/мес', period: '',              description: 'Подписка на курс для профессионалов' },
+  { id: 'coursesstud',  title: '🎓 Курс для школьников/студ.', price: '5000 ₽',     period: '',              description: 'Курс для школьников и студентов' },
+];
+
+// ---- Встроенные позиции каталога ----
+// ВАЖНО: id не меняем — логика доступа завязана на них
 const INITIAL_GAMES = [
   // Free
   { id: 'free-1', title: 'Waremover', description: 'Управляйте складом и оптимизируйте размещение товаров', url: 'https://supplychains.github.io/waremover/', category: 'free', isBuiltIn: true, type: 'link' },
-  { id: 'free-2', title: 'Shipster', description: 'Симулятор управления доставками и маршрутизацией', url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
+  { id: 'free-2', title: 'Shipster',   description: 'Симулятор управления доставками и маршрутизацией',     url: 'https://supplychains.github.io/shipster/', category: 'free', isBuiltIn: true, type: 'link' },
 
-  // Board (Free access)
-  { id: 'board-1', title: 'Кроссдок', description: 'Настольная игра в логистику, которая помогает понять как управляют поставками', url: 'https://krossdok.ru', category: 'board', isBuiltIn: true, type: 'link' },
-  { id: 'board-2', title: 'The Beer Game', description: 'Пивная игра - самая известная игра в логистику. Мы проводим эти игры офлайн и предлагаем наборы для самостоятельной игры', url: 'https://logistoria.com/thebeergame', category: 'board', isBuiltIn: true, type: 'link' },
+  // Board
+  { id: 'board-1', title: 'Krossdok',        description: 'Настольная игра по кросс-докингу',         url: 'https://krossdok.ru',                         category: 'board', isBuiltIn: true, type: 'link' },
+  { id: 'board-2', title: 'The Beer Game',   description: 'Физическая версия классической игры',      url: 'https://logistoria.com/thebeergame',           category: 'board', isBuiltIn: true, type: 'link' },
 
-  // Rutube (Free access) — пополняется через админку
+  // Rutube — добавляйте через админку (type: 'rutube')
 
-  // Online (PRO)
-  { id: 'online-1', title: 'Кадена - The Supply Chain Game', description: 'Возможно, самая реалистичная и комплексная игровая симуляция управления цепями поставок', url: 'https://supplychains.surge.sh', category: 'online', isBuiltIn: true, type: 'link' },
-  { id: 'online-2', title: ' The Beer Game Online', description: 'Самая известная игра в логистику доступна и онлайн', url: 'https://beergame.logistoria.com/login.html', category: 'online', isBuiltIn: true, type: 'link' },
+  // Online (PRO/частичный доступ профилей)
+  { id: 'online-1', title: 'Kadena',                 description: 'Комплексная симуляция управления цепями поставок', url: 'https://supplychains.surge.sh',                 category: 'online',  isBuiltIn: true, type: 'link' },
+  { id: 'online-2', title: 'The Beer Game Online',   description: 'Классическая игра про эффект хлыста (онлайн)',     url: 'https://beergame.logistoria.com/login.html',   category: 'online',  isBuiltIn: true, type: 'link' },
 
-  // Courses (PRO)
-  { id: 'course-1', title: 'Курс для профессионалов', description: 'Полезные материалы по теме закупок и цепочек поставок', url: '/downloads/professional-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true },
-  { id: 'course-2', title: 'Логистика для школьников и студентов', description: 'Введение в логистику для начинающих. Поговорим про логистику с подрастающим поколением на их языке.', url: '/downloads/student-course.pdf', category: 'courses', type: 'pdf', isBuiltIn: true }
+  // Courses (теперь два отдельных раздела)
+  { id: 'course-1', title: 'Курс для профессионалов',                 description: 'Продвинутое обучение управлению цепями поставок', url: '/downloads/professional-course.pdf', category: 'courses-pro',  type: 'pdf', isBuiltIn: true },
+  { id: 'course-2', title: 'Курс: Логистика для школьников и студентов', description: 'Введение в логистику для начинающих',           url: '/downloads/student-course.pdf',      category: 'courses-stud', type: 'pdf', isBuiltIn: true }
 ];
 
-// Порядок секций — добавили 'contacts' в самом конце
-const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses', 'contacts'];
+// Порядок секций
+const CATEGORIES_ORDERED = ['free', 'board', 'rutube', 'online', 'courses-stud', 'courses-pro', 'plans', 'contacts'];
 
 function App() {
-  const { t } = useTranslation();
-
-  // ---------- Состояния ----------
+  // ---- Состояния ----
   const [currentPage, setCurrentPage] = useState('login');
 
-  const [currentUser, setCurrentUser] = useState(null); // {id, email, name, role: 'user'|'pro'|'admin'}
+  const [currentUser, setCurrentUser] = useState(null); // {id, email, name, role:'user'|'pro'|'admin'|'kadena'|'thebeergame'|'coursespros'|'coursesstud'}
   const [users, setUsers] = useState([]);
 
   const [games, setGames] = useState([]);
@@ -101,7 +104,7 @@ function App() {
 
   const [showUsersModal, setShowUsersModal] = useState(false);
 
-  // ---------- Завершение magic-link ----------
+  // ---- Завершение входа по magic-link ----
   useEffect(() => {
     completeMagicLinkSignIn()
       .then(async (user) => {
@@ -114,7 +117,7 @@ function App() {
       .catch(() => {});
   }, []);
 
-  // ---------- Следим за auth ----------
+  // ---- Следим за auth ----
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -132,13 +135,12 @@ function App() {
             });
             setCurrentPage('dashboard');
             await loadGames();
-            if (data.role === 'admin') await loadUsers();
+            if ((data.role || '').toLowerCase() === 'admin') await loadUsers();
           } else {
             await signOut(auth);
             showNotification('Ваш аккаунт заблокирован', 'error');
           }
         } else {
-          // профиль при первом входе
           const payload = {
             email: firebaseUser.email,
             name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'User'),
@@ -147,12 +149,7 @@ function App() {
             createdAt: new Date().toISOString()
           };
           await setDoc(userDocRef, payload, { merge: true });
-          setCurrentUser({
-            id: firebaseUser.uid,
-            email: firebaseUser.email,
-            name: payload.name,
-            role: payload.role
-          });
+          setCurrentUser({ id: firebaseUser.uid, email: firebaseUser.email, name: payload.name, role: payload.role });
           setCurrentPage('dashboard');
           await loadGames();
         }
@@ -165,7 +162,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // ---------- Профиль-хелпер ----------
+  // ---- Профиль-хелпер ----
   const ensureUserDoc = async (uid, email, displayName) => {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
@@ -184,7 +181,7 @@ function App() {
     }
   };
 
-  // ---------- Каталог ----------
+  // ---- Каталог ----
   const loadGames = async () => {
     try {
       const gamesSnapshot = await getDocs(collection(db, 'games'));
@@ -209,7 +206,7 @@ function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // ---------- Аутентификация ----------
+  // ---- Аутентификация ----
   const handleLogin = async () => {
     try {
       setLoginError('');
@@ -261,7 +258,7 @@ function App() {
       setRegisterName('');
       setRegisterEmail('');
       setRegisterPassword('');
-      setVerifyNotice('Мы отправили письмо для подтверждения. Проверьте почту и перейдите по ссылке, затем войдите.');
+      setVerifyNotice('Письмо для подтверждения отправлено! Проверьте почту.');
       showNotification('Письмо для подтверждения отправлено!');
     } catch (error) {
       if (error.code === 'auth/email-already-in-use') {
@@ -308,7 +305,7 @@ function App() {
 
   const resendVerificationEmail = async () => {
     if (!loginEmail || !loginPassword) {
-      setLoginError('Укажите e-mail и пароль, чтобы отправить письмо повторно.');
+      setLoginError('Укажите email');
       return;
     }
     try {
@@ -317,7 +314,7 @@ function App() {
       const user = cred.user;
 
       if (user.emailVerified) {
-        showNotification('E-mail уже подтверждён. Войдите в аккаунт.');
+        showNotification('Добро пожаловать!');
         await signOut(auth);
         return;
       }
@@ -325,15 +322,15 @@ function App() {
       await sendEmailVerification(user);
       await signOut(auth);
       showNotification('Письмо отправлено повторно. Проверьте почту.');
-      setVerifyNotice('Мы снова отправили письмо. Проверьте почту.');
+      setVerifyNotice('Письмо отправлено повторно. Проверьте почту.');
     } catch {
-      setLoginError('Не удалось отправить письмо. Проверьте e-mail и пароль.');
+      setLoginError('Неверный email или пароль');
     } finally {
       setResendBusy(false);
     }
   };
 
-  // ---------- Управление пользователями (админ) ----------
+  // ---- Управление пользователями (админ) ----
   const handleToggleUserStatus = async (userId) => {
     try {
       const ref = doc(db, 'users', userId);
@@ -388,7 +385,7 @@ function App() {
     }
   };
 
-  // ---------- CRUD каталога ----------
+  // ---- CRUD каталога ----
   const getCategoryGames = (category) => games.filter(g => g.category === category);
 
   const handleAddGame = async () => {
@@ -402,8 +399,9 @@ function App() {
         category: selectedCategory,
         isBuiltIn: false,
         type:
-          selectedCategory === 'courses' ? 'pdf' :
-          selectedCategory === 'rutube'  ? 'rutube' :
+          selectedCategory === 'courses-pro'  ? 'pdf' :
+          selectedCategory === 'courses-stud' ? 'pdf' :
+          selectedCategory === 'rutube'       ? 'rutube' :
           'link',
         createdAt: new Date().toISOString()
       });
@@ -411,9 +409,9 @@ function App() {
       setShowAddModal(false);
       setFormData({ title: '', description: '', url: '' });
       setSelectedCategory(null);
-      showNotification('Элемент добавлен');
+      showNotification('Добавлено');
     } catch (error) {
-      console.error('Ошибка добавления элемента:', error);
+      console.error('Ошибка добавления:', error);
       showNotification('Ошибка добавления', 'error');
     }
   };
@@ -432,9 +430,9 @@ function App() {
       await loadGames();
       setEditingGame(null);
       setFormData({ title: '', description: '', url: '' });
-      showNotification('Элемент обновлён');
+      showNotification('Обновлено');
     } catch (error) {
-      console.error('Ошибка редактирования элемента:', error);
+      console.error('Ошибка редактирования:', error);
       showNotification('Ошибка редактирования', 'error');
     }
   };
@@ -444,9 +442,9 @@ function App() {
       try {
         await deleteDoc(doc(db, 'games', gameId));
         await loadGames();
-        showNotification('Элемент удалён');
+        showNotification('Удалено');
       } catch (error) {
-        console.error('Ошибка удаления элемента:', error);
+        console.error('Ошибка удаления:', error);
         showNotification('Ошибка удаления', 'error');
       }
     }
@@ -497,12 +495,65 @@ function App() {
     }
   };
 
-  // ---------- Доступы по ролям ----------
+  // ---- Доступы по ролям ----
+  const role = (currentUser?.role || 'user').toLowerCase();
+
   const canAccessCategory = (categoryId) => {
-    if (categoryId === 'contacts') return true; // всем доступно
-    const role = (currentUser?.role || 'user').toLowerCase();
+    if (categoryId === 'plans' || categoryId === 'contacts') return true;
+
     if (role === 'admin' || role === 'pro') return true;
-    return ['free', 'board', 'rutube'].includes(categoryId); // user (free)
+
+    if (['free', 'board', 'rutube'].includes(categoryId)) return true;
+
+    // Частичные профили: доступ к самим разделам разрешим визуально,
+    // но карточки внутри откроются только по per-card логике (см. canOpenCard)
+    if (['online', 'courses-pro', 'courses-stud'].includes(categoryId)) {
+      return true; // секция видна, но внутри может быть «Оформить PRO»
+    }
+
+    return false;
+  };
+
+  // Пер-карточные правила открытия
+  const canOpenCard = (game) => {
+    if (role === 'admin' || role === 'pro') return true;
+
+    // Базовый user: только free/board/rutube
+    if (role === 'user') {
+      return ['free', 'board', 'rutube'].includes(game.category);
+    }
+
+    // Kadena: как user + только online-1
+    if (role === 'kadena') {
+      if (['free', 'board', 'rutube'].includes(game.category)) return true;
+      if (game.category === 'online' && game.id === 'online-1') return true; // Kadena
+      return false;
+    }
+
+    // The Beer Game: как user + только online-2
+    if (role === 'thebeergame') {
+      if (['free', 'board', 'rutube'].includes(game.category)) return true;
+      if (game.category === 'online' && game.id === 'online-2') return true; // Beer Game Online
+      return false;
+    }
+
+    // coursespros: как user + только course-1, Beer Game Online закрыт
+    if (role === 'coursespros') {
+      if (['free', 'board', 'rutube'].includes(game.category)) return true;
+      if (game.id === 'online-2') return false; // гарантированно закрыто
+      if (game.category === 'courses-pro' && game.id === 'course-1') return true;
+      return false;
+    }
+
+    // coursesstud: как user + только course-2, Beer Game Online закрыт
+    if (role === 'coursesstud') {
+      if (['free', 'board', 'rutube'].includes(game.category)) return true;
+      if (game.id === 'online-2') return false; // гарантированно закрыто
+      if (game.category === 'courses-stud' && game.id === 'course-2') return true;
+      return false;
+    }
+
+    return false;
   };
 
   if (loading) {
@@ -513,7 +564,7 @@ function App() {
     );
   }
 
-  // ---------- LOGIN ----------
+  // ---- LOGIN ----
   if (currentPage === 'login') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -580,7 +631,6 @@ function App() {
                     </button>
                   </div>
 
-                  {/* Блок верификации */}
                   {verifyNotice && (
                     <div className="bg-yellow-50 text-yellow-800 px-4 py-3 rounded-lg text-sm mt-3">
                       <div className="mb-2">{verifyNotice}</div>
@@ -589,7 +639,7 @@ function App() {
                         className="px-3 py-2 bg-yellow-600 text-white rounded-lg disabled:opacity-60"
                         disabled={resendBusy}
                       >
-                        {resendBusy ? 'Отправляем…' : 'Отправить письмо ещё раз'}
+                        {resendBusy ? '...' : 'Отправить письмо ещё раз'}
                       </button>
                     </div>
                   )}
@@ -602,7 +652,7 @@ function App() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Имя</label>
-                    <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Иван Иванов" />
+                    <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Ivan Ivanov" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
@@ -669,19 +719,17 @@ function App() {
     );
   }
 
-  // ---------- DASHBOARD ----------
-
+  // ---- DASHBOARD ----
   const categories = [
-    { id: 'free',     title: 'Бесплатные игры',   icon: Gamepad2,   bgColor: 'bg-green-500' },
-    { id: 'board',    title: 'Настольные игры',   icon: Package,    bgColor: 'bg-purple-500' },
-    { id: 'rutube',   title: 'Видео (RuTube)',    icon: PlayCircle, bgColor: 'bg-emerald-500' },
-    { id: 'online',   title: 'Онлайн игры',       icon: Gamepad2,   bgColor: 'bg-blue-500' },
-    { id: 'courses',  title: 'Курсы (PDF)',       icon: BookOpen,   bgColor: 'bg-orange-500' },
-    // новый раздел — всегда доступен, внизу
-    { id: 'contacts', title: 'Новости и Контакты', icon: Mail,       bgColor: 'bg-teal-500' }
+    { id: 'free',          title: 'Бесплатные игры',        icon: Gamepad2,   bgColor: 'bg-green-500' },
+    { id: 'board',         title: 'Настольные игры',        icon: Package,    bgColor: 'bg-purple-500' },
+    { id: 'rutube',        title: 'Видео (RuTube)',         icon: PlayCircle, bgColor: 'bg-emerald-500' },
+    { id: 'online',        title: 'Онлайн-игры',            icon: Gamepad2,   bgColor: 'bg-blue-500' },
+    { id: 'courses-stud',  title: 'Курс: Логистика для школьников и студентов', icon: BookOpen, bgColor: 'bg-orange-500' },
+    { id: 'courses-pro',   title: 'Курс: для профессионалов',                   icon: BookOpen, bgColor: 'bg-amber-600' },
+    { id: 'plans',         title: '💎 Тарифы и доступ',     icon: Shield,     bgColor: 'bg-indigo-500' },
+    { id: 'contacts',      title: 'Новости и Контакты',     icon: Mail,       bgColor: 'bg-teal-500' }
   ].sort((a,b)=> CATEGORIES_ORDERED.indexOf(a.id) - CATEGORIES_ORDERED.indexOf(b.id));
-
-  const role = (currentUser?.role || 'user').toLowerCase();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -698,7 +746,6 @@ function App() {
             <h1 className="text-xl font-bold">Logistoria</h1>
           </div>
           <div className="flex items-center gap-4">
-            <LanguageSwitcher />
             {role === 'admin' && (
               <button onClick={() => setShowUsersModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg">
                 <Users className="w-4 h-4" />
@@ -716,13 +763,16 @@ function App() {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         <h2 className="text-3xl font-bold mb-2">Добро пожаловать, {currentUser?.name}!</h2>
-        <p className="text-gray-600 mb-8">Выберите игру или курс</p>
+        <p className="text-gray-600 mb-8">Выберите раздел</p>
 
         <div className="space-y-12">
           {categories.map(category => {
             const Icon = category.icon;
             const categoryGames = getCategoryGames(category.id);
-            const canAccess = canAccessCategory(category.id);
+            const canAccessSec = canAccessCategory(category.id);
+
+            // Визуальное отключение секции, если нет доступа (для красоты; доступ всё равно проверяется на карточках)
+            const sectionDisabled = !canAccessSec && !['plans', 'contacts'].includes(category.id);
 
             return (
               <section key={category.id} className="bg-white rounded-xl shadow-sm p-6">
@@ -733,78 +783,154 @@ function App() {
                   <h3 className="text-2xl font-bold">{category.title}</h3>
                 </div>
 
-                {category.id === 'contacts' ? (
+                {/* Спец-раздел: Tariffs */}
+                {category.id === 'plans' ? (
+                  <div className="space-y-8">
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {PLANS.map(plan => (
+                        <div key={plan.id} className="border rounded-xl bg-white shadow-sm p-6 text-center hover:shadow-md transition-shadow">
+                          <h4 className="text-xl font-semibold mb-2">{plan.title}</h4>
+                          <p className="text-gray-800 text-lg font-bold mb-1">{plan.price}</p>
+                          {plan.period && <p className="text-gray-500 text-sm mb-2">{plan.period}</p>}
+                          <p className="text-gray-600 text-sm mb-4">{plan.description}</p>
+                          <a
+                            href={`mailto:${MAIL_TO}?subject=${encodeURIComponent('Оформить тариф ' + plan.title)}`}
+                            className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg inline-block"
+                          >
+                            Оформить
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Free & PRO резюме */}
+                    <div className="grid sm:grid-cols-2 gap-6">
+                      <div className="border rounded-xl bg-white shadow-sm p-6 text-center">
+                        <h4 className="text-xl font-semibold mb-2">Free</h4>
+                        <p className="text-gray-600 text-sm mb-4">
+                          Доступ к бесплатным играм, настольным играм и видео.
+                        </p>
+                        <button disabled className="bg-gray-300 text-white py-2 px-4 rounded-lg cursor-not-allowed">
+                          Активен
+                        </button>
+                      </div>
+                      <div className="border rounded-xl bg-white shadow-sm p-6 text-center">
+                        <h4 className="text-xl font-semibold mb-2">PRO</h4>
+                        <p className="text-gray-600 text-sm mb-4">
+                          Все игры, курсы и обновления платформы.
+                        </p>
+                        <a
+                          href={MAILTO_PRO}
+                          className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg inline-block"
+                        >
+                          Оформить PRO
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )
+                // Спец-раздел: Контакты
+                : category.id === 'contacts' ? (
                   <div className="grid sm:grid-cols-2 gap-4">
                     <a
-                      href="https://t.me/supplychains"      // <= подставь свой URL Telegram-канала
+                      href="https://t.me/ВАШ_ТГ_КАНАЛ"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="border rounded-lg p-5 hover:shadow-lg transition flex items-center justify-between"
                     >
                       <div>
                         <div className="font-semibold mb-1">Подписаться в Telegram</div>
-                        <div className="text-sm text-gray-600">Будьте в курсе новостей и обновлений</div>
+                        <div className="text-sm text-gray-600">Новости и обновления</div>
                       </div>
                       <span className="px-4 py-2 bg-blue-600 text-white rounded-lg">Открыть</span>
                     </a>
 
                     <a
-                      href="https://wa.me/message/HGCBTCREGJG3L1" // <= подставь свой URL WhatsApp-чата
+                      href="https://wa.me/ВАШ_НОМЕР_ИЛИ_ЛИНК"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="border rounded-lg p-5 hover:shadow-lg transition flex items-center justify-between"
                     >
                       <div>
                         <div className="font-semibold mb-1">Написать в WhatsApp</div>
-                        <div className="text-sm text-gray-600">Связаться с продавцами и задать вопросы</div>
+                        <div className="text-sm text-gray-600">Связь с продавцами и вопросы</div>
                       </div>
                       <span className="px-4 py-2 bg-green-600 text-white rounded-lg">Открыть</span>
                     </a>
                   </div>
-                ) : (
+                )
+                : (
                   <>
-                    <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${!canAccess ? 'opacity-70 pointer-events-none select-none' : ''}`}>
-                      {categoryGames.map(game => (
-                        <div key={game.id} className="border rounded-lg p-5 hover:shadow-lg transition group">
-                          <div className="flex items-start justify-between mb-3">
-                            {category.id === 'courses'
-                              ? <BookOpen className="w-8 h-8" />
-                              : category.id === 'rutube'
-                              ? <PlayCircle className="w-8 h-8" />
-                              : <Gamepad2 className="w-8 h-8" />
-                            }
-                            {role === 'admin' && !game.isBuiltIn && (
-                              <div className="flex gap-2 opacity-0 group-hover:opacity-100">
-                                <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать"><Edit2 className="w-4 h-4" /></button>
-                                <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title="Удалить"><Trash2 className="w-4 h-4" /></button>
-                              </div>
+                    <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${sectionDisabled ? 'opacity-70 pointer-events-none select-none' : ''}`}>
+                      {categoryGames.map(game => {
+                        const openAllowed = canOpenCard(game);
+
+                        return (
+                          <div key={game.id} className="border rounded-lg p-5 hover:shadow-lg transition group">
+                            <div className="flex items-start justify-between mb-3">
+                              {category.id.startsWith('courses')
+                                ? <BookOpen className="w-8 h-8" />
+                                : category.id === 'rutube'
+                                ? <PlayCircle className="w-8 h-8" />
+                                : <Gamepad2 className="w-8 h-8" />
+                              }
+                              {(currentUser?.role || '').toLowerCase() === 'admin' && !game.isBuiltIn && (
+                                <div className="flex gap-2 opacity-0 group-hover:opacity-100">
+                                  <button onClick={() => openEditModal(game)} className="p-1 text-blue-600" title="Редактировать"><Edit2 className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDeleteGame(game.id)} className="p-1 text-red-600" title="Удалить"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                              )}
+                            </div>
+
+                            <h4 className="font-semibold mb-2">{game.title}</h4>
+                            <p className="text-sm text-gray-600 mb-4">{game.description}</p>
+
+                            {/* Кнопки действий */}
+                            {openAllowed ? (
+                              game.category === 'rutube' ? (
+                                <button
+                                  onClick={() => openRutube(game.url)}
+                                  className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
+                                >
+                                  Смотреть на месте
+                                </button>
+                              ) : game.type === 'pdf' ? (
+                                <a
+                                  href={game.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
+                                >
+                                  Скачать
+                                </a>
+                              ) : (
+                                <a
+                                  href={game.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
+                                >
+                                  Открыть
+                                </a>
+                              )
+                            ) : (
+                              // На закрытых карточках «Онлайн» и «Курсы» — «Оформить PRO»
+                              (category.id === 'online' || category.id.startsWith('courses')) ? (
+                                <a
+                                  href={MAILTO_PRO}
+                                  className={`inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm`}
+                                >
+                                  Оформить PRO
+                                </a>
+                              ) : (
+                                <span className="inline-block px-4 py-2 bg-gray-300 text-white rounded-lg text-sm cursor-not-allowed">Недоступно</span>
+                              )
                             )}
                           </div>
+                        );
+                      })}
 
-                          <h4 className="font-semibold mb-2">{game.title}</h4>
-                          <p className="text-sm text-gray-600 mb-4">{game.description}</p>
-
-                          {game.type === 'rutube' ? (
-                            <button
-                              onClick={() => openRutube(game.url)}
-                              className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
-                            >
-                              Смотреть на месте
-                            </button>
-                          ) : (
-                            <a
-                              href={game.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={`inline-block px-4 py-2 ${category.bgColor} text-white rounded-lg hover:opacity-90 text-sm`}
-                            >
-                              {game.type === 'pdf' ? 'Скачать PDF' : 'Открыть'}
-                            </a>
-                          )}
-                        </div>
-                      ))}
-
-                      {role === 'admin' && (
+                      {(currentUser?.role || '').toLowerCase() === 'admin' && (
                         <button
                           onClick={() => openAddModal(category.id)}
                           className="border-2 border-dashed rounded-lg p-5 hover:border-blue-500 flex flex-col items-center justify-center min-h-[200px]"
@@ -815,7 +941,7 @@ function App() {
                       )}
                     </div>
 
-                    {/* CTA "Заказать игры" для раздела Настольные игры */}
+                    {/* CTA «Заказать игры» под «Настольные игры» */}
                     {category.id === 'board' && (
                       <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-center justify-between flex-col sm:flex-row gap-3">
                         <div className="font-medium">Хотите получить физические комплекты настольных игр?</div>
@@ -824,19 +950,6 @@ function App() {
                           className="inline-block px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
                         >
                           Заказать игры
-                        </a>
-                      </div>
-                    )}
-
-                    {/* Закрытые разделы → CTA "Оформить PRO" */}
-                    {!canAccess && (
-                      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 flex items-center justify-between flex-col sm:flex-row gap-3">
-                        <div className="font-medium">Этот раздел доступен в PRO</div>
-                        <a
-                          href={MAILTO_PRO}
-                          className="inline-block px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
-                        >
-                          Оформить PRO
                         </a>
                       </div>
                     )}
@@ -858,7 +971,7 @@ function App() {
                 Вставьте ссылку на RuTube: https://rutube.ru/video/...
               </div>
             )}
-            {!editingGame && selectedCategory === 'courses' && (
+            {!editingGame && selectedCategory?.startsWith('courses') && (
               <div className="mb-3 text-sm text-gray-600">
                 Путь к PDF. Пример: /downloads/professional-course.pdf
               </div>
@@ -901,7 +1014,7 @@ function App() {
         </div>
       )}
 
-      {role === 'admin' && (
+      {(currentUser?.role || '').toLowerCase() === 'admin' && (
         showUsersModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
@@ -922,15 +1035,19 @@ function App() {
                     <div className="flex items-center gap-2">
                       <span className={
                         `px-2 py-1 rounded text-xs ${
-                          user.role === 'admin' ? 'bg-purple-100 text-purple-800'
-                        : user.role === 'pro'   ? 'bg-blue-100 text-blue-800'
-                        :                          'bg-gray-100 text-gray-800'
+                          (user.role || '').toLowerCase() === 'admin'        ? 'bg-purple-100 text-purple-800' :
+                          (user.role || '').toLowerCase() === 'pro'          ? 'bg-blue-100 text-blue-800' :
+                          (user.role || '').toLowerCase() === 'kadena'       ? 'bg-emerald-100 text-emerald-800' :
+                          (user.role || '').toLowerCase() === 'thebeergame'  ? 'bg-amber-100 text-amber-800' :
+                          (user.role || '').toLowerCase() === 'coursespros'  ? 'bg-orange-100 text-orange-800' :
+                          (user.role || '').toLowerCase() === 'coursesstud'  ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
                         }`
                       }>
-                        {user.role}
+                        {user.role || 'user'}
                       </span>
                       <span className={`px-2 py-1 rounded text-xs ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {user.status}
+                        {user.status === 'active' ? 'active' : 'blocked'}
                       </span>
                       {user.id !== currentUser?.id && (
                         <>
@@ -969,3 +1086,4 @@ function App() {
 }
 
 export default App;
+
